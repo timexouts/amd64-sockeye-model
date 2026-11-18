@@ -1,0 +1,213 @@
+include "types.soc"
+include "registers.soc"
+include "memory.soc"
+include "smm.soc"
+
+/*
+    Where all modules are connected and some more complex transitons are made
+*/
+module SOC{
+    instance smm: SMM_Module;
+    instance reg: Registers_Module;
+    instance mem: Memory_Module;
+
+    mem.reg -> reg;
+
+    smm.reg -> reg;
+    smm.mem -> mem;
+
+    reg.mem -> mem;
+}
+/*
+    In the main all the tests are executed
+*/
+module Main {
+    instance Chip: SOC; // AMD64 chip
+    instance Reference_Chip: SOC; // Frozen AMD64 chip
+
+    // Bit mask required to set and compare registers
+    const bit_mask_CR0: QuadWord = (0_u32 ## 1_u1 ## 0_u30 ## 1_u1);
+    const bit_mask_CR4: QuadWord = (0_u51 ## 1_u1 ## 0_u6 ## 1_u1 ## 0_u5);
+    const bit_mask_EFER: QuadWord = (0_u53 ## 1_u1 ## 0_u1 ## 1_u1 ## 0_u8);
+    /*
+        User mode 64 Bit
+    */
+    mut fn setup_reference_chip(LA57: BitInt(1)){
+        // setup the reference chip like the normal one
+        Reference_Chip.reg.init_system_register_longmode(LA57); // setting up registers
+        Reference_Chip.mem.init_longmode_structs(); // setting up structures
+    }
+    mut fn assume_invariant(){
+        // Get the vectors of the chip and reference chip
+        let Chip_Ram = Chip.mem.ram.get();
+        let Ref_Chip_Ram = Reference_Chip.mem.ram.get();
+
+        // Setup the memory region
+        let Chip_Ram = Chip_Ram[0x4_0000_u52..:=Ref_Chip_Ram[0x4_0000_u52+:4096]]; // Data Structures
+        let Chip_Ram = Chip_Ram[0x4_E000_u52..:=Ref_Chip_Ram[0x4_E000_u52+:4096]]; // TSS Struct
+        let Chip_Ram = Chip_Ram[0x4_1000_u52..:=Ref_Chip_Ram[0x4_1000_u52+:4096]]; // Code
+        let Chip_Ram = Chip_Ram[0x4_2000_u52..:=Ref_Chip_Ram[0x4_2000_u52+:4096]]; // Stack
+        let Chip_Ram = Chip_Ram[0x4_3000_u52..:=Ref_Chip_Ram[0x4_3000_u52+:4096]]; // PML5T
+        let Chip_Ram = Chip_Ram[0x4_4000_u52..:=Ref_Chip_Ram[0x4_4000_u52+:4096]]; // PML4T
+        let Chip_Ram = Chip_Ram[0x4_5000_u52..:=Ref_Chip_Ram[0x4_5000_u52+:4096]]; // PDPT Kernel
+        let Chip_Ram = Chip_Ram[0x4_6000_u52..:=Ref_Chip_Ram[0x4_6000_u52+:4096]]; // PDT Kernel
+        let Chip_Ram = Chip_Ram[0x4_7000_u52..:=Ref_Chip_Ram[0x4_7000_u52+:4096]]; // PT Kernel
+        let Chip_Ram = Chip_Ram[0x4_8000_u52..:=Ref_Chip_Ram[0x4_8000_u52+:4096]]; // PDPT User
+        let Chip_Ram = Chip_Ram[0x4_9000_u52..:=Ref_Chip_Ram[0x4_9000_u52+:4096]]; // PDT USer 
+        let Chip_Ram = Chip_Ram[0x4_A000_u52..:=Ref_Chip_Ram[0x4_A000_u52+:4096]]; // PT User
+        
+        // Set the vector to the RAM 
+        Chip.mem.ram.set(Chip_Ram);
+        
+        // Setup the register
+        Chip.reg.set_CR0(Reference_Chip.reg.get_CR0() & bit_mask_CR0);
+        Chip.reg.set_CR3(Reference_Chip.reg.get_CR3());
+        Chip.reg.set_CR4(Reference_Chip.reg.get_CR4() & bit_mask_CR4);
+        Chip.reg.set_EFER(Reference_Chip.reg.get_EFER() & bit_mask_EFER);
+        Chip.reg.set_GDTR_Limit(Reference_Chip.reg.get_GDTR_Limit());
+        Chip.reg.set_GDTR_Base(Reference_Chip.reg.get_GDTR_Base());
+        Chip.reg.set_CS_Selector(Reference_Chip.reg.get_CS_Selector());
+        Chip.reg.set_DS_Selector(Reference_Chip.reg.get_DS_Selector());
+        Chip.reg.set_SS_Selector(Reference_Chip.reg.get_SS_Selector());
+    }
+    mut fn assert_invariant(){
+        let address: PhyAddr = any;
+        assume((address >= 0x4_0000_u52 && address < 0x4_B000_u52) || (address >= 0x4_E000_u52 && address < 0x4_F000_u52));
+        assert(Reference_Chip.mem.ram.load(address) == Chip.mem.ram.load(address)
+            && (Reference_Chip.reg.get_CR0() & bit_mask_CR0) == (Chip.reg.get_CR0() & bit_mask_CR0)
+            && Reference_Chip.reg.get_CR3() == Chip.reg.get_CR3()
+            && (Reference_Chip.reg.get_CR4() & bit_mask_CR4) == (Chip.reg.get_CR4() & bit_mask_CR4)
+            && (Reference_Chip.reg.get_EFER() & bit_mask_EFER) == (Chip.reg.get_EFER() & bit_mask_EFER)
+            && Reference_Chip.reg.get_GDTR_Limit() == Chip.reg.get_GDTR_Limit()
+            && Reference_Chip.reg.get_GDTR_Base() == Chip.reg.get_GDTR_Base()
+            && Reference_Chip.reg.get_CS_Selector() == Chip.reg.get_CS_Selector()
+            && Reference_Chip.reg.get_DS_Selector() == Chip.reg.get_DS_Selector()
+            && Reference_Chip.reg.get_SS_Selector() == Chip.reg.get_SS_Selector())
+    }
+    mut fn base_case_PML5(){
+        /*
+            Base case for using PML5
+        */
+        setup_reference_chip(1);
+
+        Chip.reg.init_system_register_longmode(1);
+        Chip.mem.init_longmode_structs();
+
+        assert_invariant()
+    }
+    mut fn base_case_PML4(){
+        /*
+            Base case for using PML4
+        */
+        setup_reference_chip(0);
+
+        Chip.reg.init_system_register_longmode(0);
+        Chip.mem.init_longmode_structs();
+
+        assert_invariant()
+    }
+    mut fn step_case(){
+        // Setup the reference Chip
+        setup_reference_chip(any);
+        // Assumption
+        assume_invariant();
+        // Step
+        match any<BitInt(2)> {
+            0 => let ignore = Chip.mem.read_va(any, any);(),
+            1 => let ignore = Chip.mem.write_va(any, any, any);(),
+            _ => Chip.reg.usermode_register(),
+        };
+        // Assert
+        assert_invariant();
+    }
+    mut fn useful_prop_read(){
+        // Setup the reference Chip
+        setup_reference_chip(any);
+        // Assumption
+        assume_invariant();
+        // Step
+        let address: QuadWord = any;
+        let selector: Segment_Selector = any;
+        assume(address >= 0x3000_u64); // take any address that is larger than 0x3000 => is outside of the user region
+        let value = Chip.mem.read_va(address, selector);
+        // Assert
+        let UAI = Chip.reg.get_EFER()[20]; // Upper Address Ignore
+        assert((Chip.mem.error_code.get() != 0)
+                || (Chip.mem.error_code.get() == 0 && UAI && (selector == E_DS || selector == E_ES) 
+                    && address[56 downto 0] < 0x3000_u57)); // special case where the relevant bits are smaller than 0x3000
+    }
+    mut fn useful_prop_write(){
+         // Setup the reference Chip
+        setup_reference_chip(any);
+        // Assumption
+        assume_invariant();
+        // Step
+        let address: QuadWord = any;
+        let selector: Segment_Selector = any;
+        let value: Byte = any;
+        assume(address >= 0x3000_u64); // take any address that is larger than 0x3000 => is outside of the user region
+        let successful = Chip.mem.write_va(address, selector, value);
+        // Assert
+        let UAI = Chip.reg.get_EFER()[20]; // Upper Address Ignore
+        assert((!successful)
+                || (successful && UAI && (selector == E_DS || selector == E_ES) 
+                    && address[56 downto 0] < 0x3000_u57)); // special case where the relevant bits are smaller than 0x3000
+    }
+    /*
+        Sinkclose
+
+        The difference of the two sinkclose scnearios are that the "sinkclose" sets the MMIO space to all ones like no device is mapped to the address.
+        While "sinkclose_device" lets the whole MMIO space be set to any. With that the solver can choose the values of the MMIO space.
+    */
+
+    mut fn sinkclose(device: Bool){
+        /*
+            Depending on the bool it initalize the MMIO space. When the bool is set to true then it is the Sinkclose bug that only works in theory.
+        */
+        Chip.reg.init_smm_register(); // Setup registers for SMM
+        Chip.smm.init_smm(); // setup the SMM region
+
+        if(!device){
+            Chip.mem.init_mmio(); // Setup the MMIO space to all FFs
+        }
+        else {};
+
+        /*
+            Checking if it is save
+        */
+        assert(Chip.smm.LastRIP.get()[51 downto 17] & Chip.reg.SMM_MASK.get()[51 downto 17] == Chip.reg.SMM_ADDR.get()[51 downto 17] & Chip.reg.SMM_MASK.get()[51 downto 17]);
+
+        Chip.reg.set_tclose(any); // set tclose
+
+        Chip.smm.SMI(); // Call to SMI
+
+        assert(Chip.smm.LastRIP.get()[51 downto 17] & Chip.reg.SMM_MASK.get()[51 downto 17] == Chip.reg.SMM_ADDR.get()[51 downto 17] & Chip.reg.SMM_MASK.get()[51 downto 17]);
+    }
+
+    mut fn sinkclose_device(){
+        /*
+            This is a bug that works in theory but does not work on real hardware.
+        */
+        sinkclose(true)
+    }
+    mut fn sinkclose_no_device(){
+        /*
+            This is the working Sinkclose bug which has no device mapped to the address.
+        */
+        sinkclose(false)
+    }
+
+    mut fn sinkclose_fix(){
+        Chip.reg.init_smm_register(); // Setup registers for SMM
+        Chip.smm.init_smm(); // setup the SMM region
+        Chip.mem.init_mmio(); // Setup the MMIO space to all FFs
+
+        assert(Chip.smm.LastRIP.get()[51 downto 17] & Chip.reg.SMM_MASK.get()[51 downto 17] == Chip.reg.SMM_ADDR.get()[51 downto 17] & Chip.reg.SMM_MASK.get()[51 downto 17]);
+
+        Chip.reg.set_tclose(0); // set lock it
+
+        Chip.smm.SMI(); // Call to SMI
+
+        assert(Chip.smm.LastRIP.get()[51 downto 17] & Chip.reg.SMM_MASK.get()[51 downto 17] == Chip.reg.SMM_ADDR.get()[51 downto 17] & Chip.reg.SMM_MASK.get()[51 downto 17]);
+    }
+}

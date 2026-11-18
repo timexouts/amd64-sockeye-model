@@ -1,0 +1,718 @@
+/*
+    This file is manly for accessing registers and setting them. So it is nicely split with other modules and in the end added with the other files
+*/
+
+module Registers_Module {
+    callee mem: Memory_Module_Interface;
+
+    // Just a bool for knowing the state
+    instance smm_active: State<Bool>(false);
+    // instance operand_size_16_32: State<Bool>(false);
+    instance Code_Selector: State<Register16>(any); // for jump and calls for segment
+
+    // General Purpose Registers
+    instance RAX: State<Register64>(any);
+    instance RBX: State<Register64>(any);
+    instance RCX: State<Register64>(any);
+    instance RDX: State<Register64>(any);
+    instance RBP: State<Register64>(any);
+    instance RDI: State<Register64>(any);
+    instance RSI: State<Register64>(any);
+    instance RSP: State<Register64>(any);
+    instance R8: State<Register64>(any);
+    instance R9: State<Register64>(any);
+    instance R10: State<Register64>(any);
+    instance R11: State<Register64>(any);
+    instance R12: State<Register64>(any);
+    instance R13: State<Register64>(any);
+    instance R14: State<Register64>(any);
+    instance R15: State<Register64>(any);
+    instance RIP: State<Register64>(any);
+
+    // Control Registers
+    instance CR0: State<Register64>(any);
+    instance CR2: State<Register64>(any);
+    instance CR3: State<Register64>(any);
+    instance CR4: State<Register64>(any);
+    instance CR8: State<Register64>(any);
+
+    // System Flags Registers
+    instance RFLAGS: State<Register64>(any);
+
+    /*
+        Descriptor Table Registers
+    */
+    instance GDTR_Limit: State<Register16>(any);
+    instance GDTR_Base: State<Register64>(any); // Base Address
+
+    instance IDTR_Limit: State<Register16>(any);
+    instance IDTR_Base: State<Register64>(any);
+
+    instance LDTR_Selector: State<Register16>(any);
+    instance LDTR_Limit: State<Register32>(any); // IS 32 Bit
+    instance LDTR_Base: State<Register64>(any);
+
+    instance TR_Selector: State<Register16>(any);
+    instance TR_Limit: State<Register32>(any);
+    instance TR_Base: State<Register64>(any);
+
+    /*
+        Segment Registers
+    */
+    instance CS_Selector: State<Register16>(any);
+    instance CS_Limit: State<Register32>(any);
+    instance CS_Base: State<Register64>(any); // Base Address
+
+    instance SS_Selector: State<Register16>(any);
+    instance SS_Limit: State<Register32>(any);
+    instance SS_Base: State<Register64>(any); // Base Address
+
+    instance ES_Selector: State<Register16>(any);
+    instance ES_Limit: State<Register32>(any);
+    instance ES_Base: State<Register64>(any); // Base Address
+
+    instance DS_Selector: State<Register16>(any);
+    instance DS_Limit: State<Register32>(any);
+    instance DS_Base: State<Register64>(any); // Base Address
+
+    instance FS_Selector: State<Register16>(any);
+    instance FS_Limit: State<Register32>(any);
+    instance FS_Base: State<Register64>(any); // Base Address
+
+    instance GS_Selector: State<Register16>(any);
+    instance GS_Limit: State<Register32>(any);
+    instance GS_Base: State<Register64>(any); // Base Address
+
+    /*
+        Model Specific Registers
+     */
+
+    // System Configuration Registers
+    instance SYSCFG: State<Register64>(any);
+    instance EFER: State<Register64>(any);
+
+    // System-Linkage Registers
+    instance STAR: State<Register64>(any);
+    instance LSTAR: State<Register64>(any);
+    instance CSTAR: State<Register64>(any);
+    instance SFMASK: State<Register64>(any);
+
+    instance SYSENTER_CS: State<Register64>(any);
+    instance SYSENTER_ESP: State<Register64>(any);
+    instance SYSENTER_EIP: State<Register64>(any);
+
+    // Shadow Stack Registers
+    instance PL0_SSP: State<Register64>(any);
+    instance PL1_SSP: State<Register64>(any);
+    instance PL2_SSP: State<Register64>(any);
+    instance PL3_SSP: State<Register64>(any);
+    instance ISST_ADDR: State<Register64>(any);
+    instance U_CET: State<Register64>(any); 
+    instance S_CET: State<Register64>(any);
+
+    /*
+        Debug Regs
+    */
+    instance DR0: State<Register64>(any);
+    instance DR1: State<Register64>(any);
+    instance DR2: State<Register64>(any);
+    instance DR3: State<Register64>(any);
+    instance DR6: State<Register64>(any);
+    instance DR7: State<Register64>(any);
+
+    /*
+        SMM Regs
+    */
+    instance SMBASE: State<Register32>(0x0003_0000_u32);
+    instance SMM_ADDR: State<Register64>(0x0002_0000_u64);
+    instance SMM_MASK: State<Register64>(0xFFFF_FFFF_FFFE_0002);
+
+    /*
+        Register initialization 
+    */
+    mut fn init_processor_state_reset(){ // Value After RESET
+        CR0.set(0x0000_0000_6000_0010);
+        CR2.set(0);
+        CR3.set(0);
+        CR4.set(0);
+        CR8.set(0);
+        
+        RFLAGS.set(2);
+        EFER.set(0);
+        RIP.set(0x0000_0000_0000_FF00);
+        
+        CS_Selector.set(0xF000);
+        CS_Limit.set(0xFFFF_u32);
+        CS_Base.set(0x0000_0000_FFFF_0000);
+        
+        DS_Selector.set(0x0000);
+        DS_Limit.set(0xFFFF_u32);
+        DS_Base.set(0);
+        
+        ES_Selector.set(0x0000);
+        ES_Limit.set(0xFFFF_u32);
+        ES_Base.set(0);
+        
+        FS_Selector.set(0x0000);
+        FS_Limit.set(0xFFFF_u32);
+        FS_Base.set(0);
+        
+        GS_Selector.set(0x0000);
+        GS_Limit.set(0xFFFF_u32);
+        GS_Base.set(0);
+        
+        SS_Selector.set(0x0000);
+        SS_Limit.set(0xFFFF_u32);
+        SS_Base.set(0);
+        
+        GDTR_Limit.set(0xFFFF);
+        GDTR_Base.set(0);
+        
+        IDTR_Limit.set(0xFFFF);
+        IDTR_Base.set(0);
+        
+        LDTR_Selector.set(0);
+        LDTR_Limit.set(0xFFFF_u32);
+        LDTR_Base.set(0);
+        
+        TR_Selector.set(0);
+        TR_Limit.set(0xFFFF_u32);
+        TR_Base.set(0);
+        
+        RAX.set(0);
+        RDX.set(0);
+        
+        RBX.set(0);
+        RCX.set(0);
+        RBP.set(0);
+        RSP.set(0);
+        RDI.set(0);
+        RSI.set(0);
+        R8.set(0);
+        R9.set(0);
+        R10.set(0);
+        R11.set(0);
+        R12.set(0);
+        R13.set(0);
+        R14.set(0);
+        R15.set(0);
+        
+        DR0.set(0);
+        DR1.set(0);
+        DR2.set(0);
+        DR3.set(0);
+        
+        DR6.set(0x0000_0000_FFFF_0FF0);
+        DR7.set(0x0000_0000_0000_0400);
+        
+       
+    }  
+    mut fn init_processor_state_init(){ // Value After INIT
+        CR0.set((CR0.get() & 0x0000_0000_C000_0000) | 0x0000_0000_0000_0004); // keep Cache Disabled, Not Writethrough and set bit 4 to 1
+        CR2.set(0);
+        CR3.set(0);
+        CR4.set(0);
+        CR8.set(0); 
+        RFLAGS.set(2);
+        EFER.set(0);
+        RIP.set(0x0000_0000_0000_FF00); 
+
+        CS_Selector.set(0xF000);
+        CS_Limit.set(0xFFFF_u32);
+        CS_Base.set(0x0000_0000_FFFF_0000); 
+
+        DS_Selector.set(0x0000);
+        DS_Limit.set(0xFFFF_u32);
+        DS_Base.set(0); 
+
+        ES_Selector.set(0x0000);
+        ES_Limit.set(0xFFFF_u32);
+        ES_Base.set(0);
+        
+        FS_Selector.set(0x0000);
+        FS_Limit.set(0xFFFF_u32);
+        FS_Base.set(0); 
+        GS_Selector.set(0x0000);
+        GS_Limit.set(0xFFFF_u32);
+        GS_Base.set(0);
+        
+        SS_Selector.set(0x0000);
+        SS_Limit.set(0xFFFF_u32);
+        SS_Base.set(0);
+
+        GDTR_Limit.set(0xFFFF);
+        GDTR_Base.set(0);   
+
+        IDTR_Limit.set(0xFFFF);
+        IDTR_Base.set(0);
+
+        LDTR_Selector.set(0);
+        LDTR_Limit.set(0xFFFF_u32);
+        LDTR_Base.set(0);
+
+        TR_Selector.set(0);
+        TR_Limit.set(0xFFFF_u32);
+        TR_Base.set(0);
+        
+        RAX.set(0);
+        RDX.set(0); 
+        RBX.set(0);
+        RCX.set(0);
+        RBP.set(0);
+        RSP.set(0);
+        RDI.set(0);
+        RSI.set(0);
+        R8.set(0);
+        R9.set(0);
+        R10.set(0);
+        R11.set(0);
+        R12.set(0);
+        R13.set(0);
+        R14.set(0);
+        R15.set(0); 
+        DR0.set(0);
+        DR1.set(0);
+        DR2.set(0);
+        DR3.set(0); 
+        DR6.set(0x0000_0000_FFFF_0FF0);
+        DR7.set(0x0000_0000_0000_0400); 
+       
+    }
+    mut fn init_smm_register(){
+        SMBASE.set(0x0003_0000_u32); // Default value
+        SMM_ADDR.set(0x0002_0000_u64); // min address for the SMBASE
+        SMM_MASK.set(0xFFFF_FFFF_FFFE_0002); // 128KB segment, min
+       
+    }
+    mut fn init_system_register_longmode(LA57: BitInt(1)){
+        //        Res      PG                                PE
+        let cr0 = 0_u32 ## 1_u1 ## CR0.get()[30 downto 1] ## 1_u1;
+        CR0.set(cr0);
+        //        Res                                 LA57                              PAE
+        let cr4 = 0_u40 ## CR4.get()[23 downto 13] ## LA57 ## CR4.get()[11 downto 6] ## 1_u1 ## CR4.get()[4 downto 0];
+        CR4.set(cr4);
+        //         Res                                  LMA     Res     LME
+        let efer = 0_u42 ## EFER.get()[21 downto 11] ## 1_u1 ## 0_u1 ## 1_u1 ## EFER.get()[7 downto 0];
+        EFER.set(efer);
+       
+    }
+    /*
+        Register functions
+    */
+    mut fn load_gdtr(address: QuadWord){
+        let lma = EFER.get()[10]; // In long mode
+
+        if(lma){ // Long mode
+            let limit = mem.read_va(address + 1, E_DS) ## mem.read_va(address, E_DS);
+
+            let gdt_address: BitInt(64) = mem.read_va(address + 9, E_DS) ## mem.read_va(address + 8, E_DS) 
+                                        ## mem.read_va(address + 7, E_DS) ## mem.read_va(address + 6, E_DS)
+                                        ## mem.read_va(address + 5, E_DS) ## mem.read_va(address + 4, E_DS)
+                                        ## mem.read_va(address + 5, E_DS) ## mem.read_va(address + 4, E_DS);
+
+            GDTR_Limit.set(limit);
+            GDTR_Base.set(gdt_address);
+        }
+        else if(smm_active.get()){ // huge real mode, unreal mode
+            let limit = mem.read_phy(0_u20 ## (address + 1)[31 downto 0]) ## mem.read_phy(0_u20 ## (address)[31 downto 0]);
+            let gdt_address: BitInt(64) = 0_u32 ## mem.read_phy(0_u20 ## (address + 5)[31 downto 0]) ## mem.read_phy(0_u20 ## (address + 4)[31 downto 0])
+                                                ## mem.read_phy(0_u20 ## (address + 3)[31 downto 0]) ## mem.read_phy(0_u20 ## (address + 2)[31 downto 0]);
+
+            GDTR_Limit.set(limit);
+            GDTR_Base.set(gdt_address);
+        }
+        else { // Realmode, protected mode
+            let limit = mem.read_va(address + 1, E_DS) ## mem.read_va(address, E_DS);
+            let gdt_address: BitInt(64) = 0_u32 ## mem.read_va(address + 5, E_DS) ## mem.read_va(address + 4, E_DS)
+                                                ## mem.read_va(address + 3, E_DS) ## mem.read_va(address + 2, E_DS);
+
+            GDTR_Limit.set(limit);
+            GDTR_Base.set(gdt_address);
+        };
+       
+    }
+
+    mut fn set_tclose(value: BitInt(1)){
+        let smm_mask = SMM_MASK.get();
+        SMM_MASK.set(smm_mask[63 downto 4] ## value ## smm_mask[2 downto 0]);
+       
+    }
+    /*
+        Register initalzisation to switch addressing mode
+    */
+
+    /*
+        Ring 3 (Usermode) Register operation
+    */
+    mut fn usermode_register(){
+        RAX.set(any);
+        RBX.set(any);
+        RCX.set(any);
+        RDX.set(any);
+        RBP.set(any);
+        RDI.set(any);
+        RSI.set(any);
+        RSP.set(any);
+        R8.set(any);
+        R9.set(any);
+        R10.set(any);
+        R11.set(any);
+        R12.set(any);
+        R13.set(any);
+        R14.set(any);
+        R15.set(any);
+
+        let flags = RFLAGS.get();
+        RFLAGS.set(flags[63 downto 12] ## any<BitInt(2)> ## flags[9 downto 8] ## any<BitInt(2)> ## flags[5 downto 5] ## any<BitInt(1)> ## flags[3 downto 3] ## any<BitInt(1)> ## flags[1 downto 1] ## any<BitInt(1)>); // set the flags to any
+       
+    }
+    /*
+        Get functions
+    */
+    fn get_smm_active() -> Bool{
+        smm_active.get()
+    }
+    fn get_SMBASE() -> DoubleWord{
+        SMBASE.get()
+    }
+    fn get_SMM_ADDR() -> QuadWord{
+        SMM_ADDR.get()
+    }
+    fn get_SMM_MASK() -> QuadWord{
+        SMM_MASK.get()
+    }
+    fn get_CR0() -> QuadWord{
+        CR0.get()
+    }
+    fn get_CR3() -> QuadWord{
+        CR3.get()
+    }
+    fn get_CR4() -> QuadWord{
+        CR4.get()
+    }
+    fn get_EFER() -> QuadWord{
+        EFER.get()
+    }
+    fn get_RFLAGS() -> QuadWord{
+        RFLAGS.get()
+    }
+    fn get_RIP() -> QuadWord{
+        RIP.get()
+    }
+    fn get_Code_Selector() -> Word{
+        Code_Selector.get()
+    }
+    fn get_CS_Selector() -> Word{
+        CS_Selector.get()
+    }
+    fn get_CS_Limit() -> DoubleWord {
+        CS_Limit.get()
+    }
+    fn get_CS_Base() -> QuadWord {
+        CS_Base.get()
+    }
+    fn get_SS_Selector() -> Word{
+        SS_Selector.get()
+    }
+    fn get_SS_Limit() -> DoubleWord {
+        SS_Limit.get()
+    }
+    fn get_SS_Base() -> QuadWord {
+        SS_Base.get()
+    }
+    fn get_ES_Selector() -> Word{
+        ES_Selector.get()
+    }
+    fn get_ES_Limit() -> DoubleWord {
+        ES_Limit.get()
+    }
+    fn get_ES_Base() -> QuadWord {
+        ES_Base.get()
+    }
+    fn get_DS_Selector() -> Word{
+        DS_Selector.get()
+    }
+    fn get_DS_Limit() -> DoubleWord {
+        DS_Limit.get()
+    }
+    fn get_DS_Base() -> QuadWord {
+        DS_Base.get()
+    }
+    fn get_FS_Selector() -> Word{
+        FS_Selector.get()
+    }
+    fn get_FS_Limit() -> DoubleWord {
+        FS_Limit.get()
+    }
+    fn get_FS_Base() -> QuadWord {
+        FS_Base.get()
+    }
+    fn get_GS_Selector() -> Word{
+        GS_Selector.get()
+    }
+    fn get_GS_Limit() -> DoubleWord {
+        GS_Limit.get()
+    }
+    fn get_GS_Base() -> QuadWord {
+        GS_Base.get()
+    }
+    fn get_GDTR_Limit() -> Word{
+        GDTR_Limit.get()
+    }
+    fn get_GDTR_Base() -> QuadWord{
+        GDTR_Base.get()
+    }
+    fn get_LDTR_Selector() -> Word{
+        LDTR_Selector.get()
+    }
+    fn get_LDTR_Limit() -> DoubleWord{
+        LDTR_Limit.get()
+    }
+    fn get_LDTR_Base() -> QuadWord{
+        LDTR_Base.get()
+    }
+    fn get_IDTR_Limit() -> Word{
+        IDTR_Limit.get()
+    }
+    fn get_IDTR_Base() -> QuadWord{
+        IDTR_Base.get()
+    }
+    fn get_TR_Selector() -> Word{
+        TR_Selector.get()
+    }
+    fn get_TR_Limit() -> DoubleWord{
+        TR_Limit.get()
+    }
+    fn get_TR_Base() -> QuadWord{
+        TR_Base.get()
+    }
+    fn get_DR6() -> QuadWord{
+        DR6.get()
+    }
+    fn get_DR7() -> QuadWord{
+        DR7.get()
+    }
+    fn get_R15() -> QuadWord{
+        R15.get()
+    }
+    fn get_R14() -> QuadWord{
+        R14.get()
+    }
+    fn get_R13() -> QuadWord{
+        R13.get()
+    }
+    fn get_R12() -> QuadWord{
+        R12.get()
+    }
+    fn get_R11() -> QuadWord{
+        R15.get()
+    }
+    fn get_R10() -> QuadWord{
+        R10.get()
+    }
+    fn get_R9() -> QuadWord{
+        R9.get()
+    }
+    fn get_R8() -> QuadWord{
+        R8.get()
+    }
+    fn get_RDI() -> QuadWord{
+        RDI.get()
+    }
+    fn get_RSI() -> QuadWord{
+        RSI.get()
+    }
+    fn get_RBP() -> QuadWord{
+        RBP.get()
+    }
+    fn get_RSP() -> QuadWord{
+        RSP.get()
+    }
+    fn get_RDX() -> QuadWord{
+        RDX.get()
+    }
+    fn get_RCX() -> QuadWord{
+        RCX.get()
+    }
+    fn get_RBX() -> QuadWord{
+        RBX.get()
+    }
+    fn get_RAX() -> QuadWord{
+        RAX.get()
+    }
+    /*
+        Set functions
+    */
+    mut fn set_smm_active(value: Bool){
+        smm_active.set(value)
+    }
+    mut fn set_SMBASE(value: DoubleWord){
+        SMBASE.set(value)
+    }
+    mut fn set_SMM_ADDR(value: QuadWord){
+        SMM_ADDR.set(value)
+    }
+    mut fn set_SMM_MASK(value: QuadWord){
+        SMM_MASK.set(value)
+    }
+    mut fn set_CR0(value: QuadWord){
+        CR0.set(value)
+    }
+    mut fn set_CR3(value: QuadWord){
+        CR3.set(value)
+    }
+    mut fn set_CR4(value: QuadWord){
+        CR4.set(value)
+    }
+    mut fn set_EFER(value: QuadWord){
+        EFER.set(value)
+    }
+    mut fn set_RFLAGS(value: QuadWord){
+        RFLAGS.set(value)
+    }
+    mut fn set_RIP(value: QuadWord){
+        RIP.set(value)
+    }
+    mut fn set_Code_Selector(value: Word){
+        Code_Selector.set(value)
+    }
+    mut fn set_CS_Selector(value: Word){
+        CS_Selector.set(value)
+    }
+    mut fn set_CS_Limit(value: DoubleWord){
+        CS_Limit.set(value)
+    }
+    mut fn set_CS_Base(value: QuadWord){
+        CS_Base.set(value)
+    }
+    mut fn set_SS_Selector(value: Word){
+        SS_Selector.set(value)
+    }
+    mut fn set_SS_Limit(value: DoubleWord){
+        SS_Limit.set(value)
+    }
+    mut fn set_SS_Base(value: QuadWord){
+        SS_Base.set(value)
+    }
+    mut fn set_ES_Selector(value: Word){
+        ES_Selector.set(value)
+    }
+    mut fn set_ES_Limit(value: DoubleWord){
+        ES_Limit.set(value)
+    }
+    mut fn set_ES_Base(value: QuadWord){
+        ES_Base.set(value)
+    }
+    mut fn set_DS_Selector(value: Word){
+        DS_Selector.set(value)
+    }
+    mut fn set_DS_Limit(value: DoubleWord){
+        DS_Limit.set(value)
+    }
+    mut fn set_DS_Base(value: QuadWord){
+        DS_Base.set(value)
+    }
+    mut fn set_FS_Selector(value: Word){
+        FS_Selector.set(value)
+    }
+    mut fn set_FS_Limit(value: DoubleWord){
+        FS_Limit.set(value)
+    }
+    mut fn set_FS_Base(value: QuadWord){
+        FS_Base.set(value)
+    }
+    mut fn set_GS_Selector(value: Word){
+        GS_Selector.set(value)
+    }
+    mut fn set_GS_Limit(value: DoubleWord){
+        GS_Limit.set(value)
+    }
+    mut fn set_GS_Base(value: QuadWord){
+        GS_Base.set(value)
+    }
+    mut fn set_GDTR_Limit(value: Word){
+        GDTR_Limit.set(value)
+    }
+    mut fn set_GDTR_Base(value: QuadWord){
+        GDTR_Base.set(value)
+    }
+    mut fn set_LDTR_Selector(value: Word){
+        LDTR_Selector.set(value)
+    }
+    mut fn set_LDTR_Limit(value: DoubleWord){
+        LDTR_Limit.set(value)
+    }
+    mut fn set_LDTR_Base(value: QuadWord){
+        LDTR_Base.set(value)
+    }
+    mut fn set_IDTR_Limit(value: Word){
+        IDTR_Limit.set(value)
+    }
+    mut fn set_IDTR_Base(value: QuadWord){
+        IDTR_Base.set(value)
+    }
+    mut fn set_TR_Selector(value: Word){
+        TR_Selector.set(value)
+    }
+    mut fn set_TR_Limit(value: DoubleWord){
+        TR_Limit.set(value)
+    }
+    mut fn set_TR_Base(value: QuadWord){
+        TR_Base.set(value)
+    }
+    mut fn set_DR6(value: QuadWord){
+        DR6.set(value)
+    }
+    mut fn set_DR7(value: QuadWord){
+        DR7.set(value)
+    }
+    mut fn set_R15(value: QuadWord){
+        R15.set(value)
+    }
+    mut fn set_R14(value: QuadWord){
+        R14.set(value)
+    }
+    mut fn set_R13(value: QuadWord){
+        R13.set(value)
+    }
+    mut fn set_R12(value: QuadWord){
+        R12.set(value)
+    }
+    mut fn set_R11(value: QuadWord){
+        R11.set(value)
+    }
+    mut fn set_R10(value: QuadWord){
+        R10.set(value)
+    }
+    mut fn set_R9(value: QuadWord){
+        R9.set(value)
+    }
+    mut fn set_R8(value: QuadWord){
+        R8.set(value)
+    }
+    mut fn set_RDI(value: QuadWord){
+        RDI.set(value)
+    }
+    mut fn set_RSI(value: QuadWord){
+        RSI.set(value)
+    }
+    mut fn set_RBP(value: QuadWord){
+        RBP.set(value)
+    }
+    mut fn set_RSP(value: QuadWord){
+        RSP.set(value)
+    }
+    mut fn set_RDX(value: QuadWord){
+        RDX.set(value)
+    }
+    mut fn set_RCX(value: QuadWord){
+        RCX.set(value)
+    }
+    mut fn set_RBX(value: QuadWord){
+        RBX.set(value)
+    }
+    mut fn set_RAX(value: QuadWord){
+        RAX.set(value)
+    }
+    
+}

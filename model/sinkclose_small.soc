@@ -1,0 +1,229 @@
+module Memory {
+    instance ram: Array<BitInt(52), BitInt(8)>; // Ram
+    instance mmio: Array<BitInt(52), Bool>; // Devices
+
+    mut fn mmio_init(){
+        mmio.set([false; 4503599627370496]);
+       
+    }
+
+    mut fn read_address(address: BitInt(64), SMM: Bool, SMM_ADDR: BitInt(64), SMM_MASK: BitInt(64)) -> BitInt(8){
+        if((SMM == true && SMM_MASK[3] == true) || // In SMM and TCLOSE => MMIO
+            (address[51 downto 17] & SMM_MASK[51 downto 17] == SMM_ADDR[51 downto 17] & SMM_MASK[51 downto 17] && !SMM)){ // When in TSEG region and not SMM => MMIO
+            if(mmio.load(address[51 downto 0])){
+                any<BitInt(8)>
+            }
+            else {
+                0xFF
+            }
+        }
+        else {
+            ram.load(address[51 downto 0]) // read RAM
+        }
+    }
+
+    mut fn write_address(address: BitInt(64), value: BitInt(8), SMM: Bool, SMM_ADDR: BitInt(64), SMM_MASK: BitInt(64)){
+        if((SMM == true && SMM_MASK[3] == true) || // In SMM and TCLOSE => MMIO
+            (address[51 downto 17] & SMM_MASK[51 downto 17] == SMM_ADDR[51 downto 17] & SMM_MASK[51 downto 17] && !SMM)){ // When in TSEG region and not SMM => MMIO
+            // do nothing
+        }
+        else {
+            ram.store(address[51 downto 0], value); // read RAM
+        };
+       
+    }
+
+    mut fn calc_jmp_ins(address: BitInt(64), GDTR: BitInt(64), selector: BitInt(16)) -> BitInt(64){ // calc the jump ins
+        let segment_addr = (GDTR + (0_u48 ## selector))[51 downto 0];
+        let descriptor_addr = 0_u32 ## (ram.load(segment_addr+7) ## ram.load(segment_addr+4) ## ram.load(segment_addr+3) ## ram.load(segment_addr+2));
+        descriptor_addr + address
+    }
+
+    mut fn ram_store(address: BitInt(52), value: BitInt(8)){
+        ram.store(address, value)
+    }
+
+}
+
+module Register {
+    callee mem: Memory;
+
+    instance smm_active: State<Bool>(false); // if in smm 
+
+    instance SMBASE: State<BitInt(32)>(0); // Base address of SMRAM
+    instance SMM_ADDR: State<BitInt(64)>(0); // TSEG start 
+    instance SMM_MASK: State<BitInt(64)>(0); // TSEG mask
+
+    instance GDTR_Limit: State<BitInt(16)>(0); // Limit
+    instance GDTR_Base: State<BitInt(64)>(0); // Base Address
+
+    mut fn reg_init(){
+        SMBASE.set(0x0003_0000_u32); // Default value
+        SMM_ADDR.set(0x0002_0000_u64); // min address for the SMBASE
+        SMM_MASK.set(0xFFFF_FFFF_FFFE_0002); // 128KB segment, min
+       
+    }
+
+    mut fn set_tclose(value: BitInt(1)){
+        let mask = SMM_MASK.get();
+        SMM_MASK.set(mask[63 downto 4] ## value ## mask[2 downto 0]);
+       
+    }
+
+    mut fn load_gdt(address: BitInt(64)){
+        assert(smm_active.get());
+        assert(address[51 downto 17] & SMM_MASK.get()[51 downto 17] == SMM_ADDR.get()[51 downto 17] & SMM_MASK.get()[51 downto 17]);
+        assert(address == 0_u32 ## (0x0003_0000_u32 + 0x804d_u32));
+        let limit: BitInt(16) = mem.read_address(address+1, smm_active.get(), SMM_ADDR.get(), SMM_MASK.get()) ## mem.read_address(address, smm_active.get(), SMM_ADDR.get(), SMM_MASK.get());
+
+        let gdt_address: BitInt(64) = 0_u32 ## (mem.read_address(address+5, smm_active.get(), SMM_ADDR.get(), SMM_MASK.get()) ## mem.read_address(address+4, smm_active.get(), SMM_ADDR.get(), SMM_MASK.get()) ##
+                                            mem.read_address(address+3, smm_active.get(), SMM_ADDR.get(), SMM_MASK.get()) ## mem.read_address(address+2, smm_active.get(), SMM_ADDR.get(), SMM_MASK.get()));
+
+        GDTR_Limit.set(limit);
+        GDTR_Base.set(gdt_address);
+       
+    }
+
+    fn SMBASE_get() -> BitInt(32){
+        SMBASE.get()
+    }
+    fn SMM_ADDR_get() -> BitInt(64){
+        SMM_ADDR.get()
+    }
+    fn SMM_MASK_get() -> BitInt(64){
+        SMM_MASK.get()
+    }
+    mut fn smm_active_set(value: Bool){
+        smm_active.set(value)
+    }
+    fn GDTR_Base_get() -> BitInt(64){
+        GDTR_Base.get()
+    }
+}
+
+module SMM {
+    callee mem: Memory; // to call mem
+    callee reg: Register; // to call reg
+
+    instance LastRIP: State<BitInt(64)>(0); // for assert check
+
+    mut fn smm_init(){
+        // From code create a GDT
+        let address_gdtr: BitInt(64) = 0_u32 ## (reg.SMBASE_get() + 0x804d_u32); // GDTR Address in the code segment
+
+        let address_gdt: BitInt(64) = 0_u32 ## (any<BitInt(32)>); // get random address
+        // let address_gdt: BitInt(64) = 0_u32 ## (reg.SMBASE.get() + 0x8070_u32);
+
+        assume((address_gdt[51 downto 17] & reg.SMM_MASK_get()[51 downto 17] == reg.SMM_ADDR_get()[51 downto 17] & reg.SMM_MASK_get()[51 downto 17]) &&
+                address_gdt > address_gdtr + 6 && 
+                ((address_gdt + 16)[51 downto 17] & reg.SMM_MASK_get()[51 downto 17] == reg.SMM_ADDR_get()[51 downto 17] & reg.SMM_MASK_get()[51 downto 17])); 
+        // let the Descriptor table be in the tseg region but bigger than the GDTR place for no problems
+
+        // GDTR values
+        mem.ram_store((address_gdtr)[51 downto 0], 0x0F_u8); // Limit ~ We only do code segement and null segment
+        mem.ram_store((address_gdtr+1)[51 downto 0], 0_u8); // Limit
+
+        mem.ram_store((address_gdtr+2)[51 downto 0], address_gdt[7 downto 0]); // Address
+        mem.ram_store((address_gdtr+3)[51 downto 0], address_gdt[15 downto 8]); // Address
+        mem.ram_store((address_gdtr+4)[51 downto 0], address_gdt[23 downto 16]); // Address
+        mem.ram_store((address_gdtr+5)[51 downto 0], address_gdt[31 downto 24]); // Address
+    
+        // GDT for jumping in SMM
+        // Null Descriptor
+        mem.ram_store((address_gdt)[51 downto 0], 0x00);
+        mem.ram_store((address_gdt+1)[51 downto 0], 0x00);
+        mem.ram_store((address_gdt+2)[51 downto 0], 0x00);
+        mem.ram_store((address_gdt+3)[51 downto 0], 0x00);
+        mem.ram_store((address_gdt+4)[51 downto 0], 0x00);
+        mem.ram_store((address_gdt+5)[51 downto 0], 0x00);
+        mem.ram_store((address_gdt+6)[51 downto 0], 0x00);
+        mem.ram_store((address_gdt+7)[51 downto 0], 0x00);
+        // Code Descriptor
+        mem.ram_store((address_gdt+8)[51 downto 0], 0x00); // Limit
+        mem.ram_store((address_gdt+9)[51 downto 0], 0x00); // Limit
+        mem.ram_store((address_gdt+10)[51 downto 0], 0x00); // Base 0:7
+        mem.ram_store((address_gdt+11)[51 downto 0], 0x00); // Base 8:15
+        mem.ram_store((address_gdt+12)[51 downto 0], 0x00); // Base 16:23
+        mem.ram_store((address_gdt+13)[51 downto 0], 0x00); // Flags
+        mem.ram_store((address_gdt+14)[51 downto 0], 0x00); // Flags
+        mem.ram_store((address_gdt+15)[51 downto 0], 0x00); // Base 24:31
+        /*
+            Just use a linear model for easy use
+        */
+
+        // Set RIP to the smm start address
+        LastRIP.set(0_u32 ## (reg.SMBASE_get() + 0x8000_u32));
+       
+    }
+
+    mut fn call_smm(){
+        reg.smm_active_set(true); // set that it is in SMM
+        let gdtr_address = 0_u32 ## (reg.SMBASE_get() + 0x804d_u32);
+        reg.load_gdt(gdtr_address);
+
+        let jmpStmt: BitInt(64) = any; // take any jump address to be non fix
+        assume(jmpStmt[51 downto 17] & reg.SMM_MASK_get()[51 downto 17] == reg.SMM_ADDR_get()[51 downto 17] & reg.SMM_MASK_get()[51 downto 17]); // We assume that the GDT has a flat memory model to model it easier
+
+        let selector: BitInt(16) = 0x8_u16; // the jump selector
+        let jump_addr = mem.calc_jmp_ins(jmpStmt, reg.GDTR_Base_get(), selector); // jmp selector:jmpstmt, => new address: jmpstmt + Descriptor_address => at selector 8
+        LastRIP.set(jump_addr); // make the jump and log the last RIP before leaving SMM
+        reg.smm_active_set(false); // leaving SMM
+    }
+}
+
+module Main{
+    instance mem: Memory;
+    instance reg: Register;
+    instance smm: SMM;
+
+    // Set calles
+    reg.mem -> mem;
+    smm.reg -> reg;
+    smm.mem -> mem;
+
+    mut fn sinkclose(){
+        /* 
+            This function has two different Sinkclose included.
+            When no device is mapped to the MMIO space reads return 0xFF => is the working Sinkclose bug
+            When a device is mapped it can return any value => Theoretically working but not on real hardware
+            This brings a slightly different exploitation path
+        */
+        let device_mapped: Bool = any; // toggle between no device is mapped and device is mapped 
+        if(device_mapped){
+            mem.mmio_init(); // sets the MMIO space to all 0xFF
+        }
+        else{};
+        // Init
+        reg.reg_init();
+        smm.smm_init();
+
+        // Check that the last point where the RIP was in SMM is inside the SMM region
+        assert(smm.LastRIP.get()[51 downto 17] & reg.SMM_MASK_get()[51 downto 17] == reg.SMM_ADDR_get()[51 downto 17] & reg.SMM_MASK_get()[51 downto 17]);
+        
+        reg.set_tclose(any); // Can set TClose bit
+        // SMI  
+        smm.call_smm();
+
+        // Check that the last point where the RIP was in SMM is inside the SMM region
+        assert(smm.LastRIP.get()[51 downto 17] & reg.SMM_MASK_get()[51 downto 17] == reg.SMM_ADDR_get()[51 downto 17] & reg.SMM_MASK_get()[51 downto 17])
+    }
+    
+    mut fn sinkclose_fix(){
+        /*
+            A fix for the working Sinkclose bug
+        */
+        // Setup the system
+        mem.mmio_init(); // Set MMIO space => all values are set to 0xFF
+        reg.reg_init(); // Set SMM regs
+        smm.smm_init(); // Setup SMM 
+        assert(smm.LastRIP.get()[51 downto 17] & reg.SMM_MASK_get()[51 downto 17] == reg.SMM_ADDR_get()[51 downto 17] & reg.SMM_MASK_get()[51 downto 17]);
+        
+        // Do some function
+        reg.set_tclose(0); // Can set Tclose
+
+        // SMI  
+        smm.call_smm();
+
+        assert(smm.LastRIP.get()[51 downto 17] & reg.SMM_MASK_get()[51 downto 17] == reg.SMM_ADDR_get()[51 downto 17] & reg.SMM_MASK_get()[51 downto 17])
+    }
+}

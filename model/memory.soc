@@ -1,0 +1,1237 @@
+/*
+    GP: Error code 13
+    PF: Error code 14
+*/
+
+module Memory_Module {
+    // To get register values
+    callee reg: Registers_Module;
+
+    /*
+        RAM(Memory), MMIO(Memory-mapped I/O)
+    */
+    instance ram: Array<PhyAddr, Byte>; // RAM
+    instance mmio: Array<PhyAddr, Bool>; // MMIO
+    /*
+        For handeling
+    */
+    instance error: State<Bool>(false); // Errors, Faults indicator
+    instance error_code: State<QuadWord>(0); // Error, Fault code
+
+    /*
+        Initalization of Address Ranges
+    */
+    mut fn init_ram(){
+        // Sets the ram to 0
+        ram.set([0_u8; 4503599627370496])
+    }
+    mut fn init_mmio(){
+        // Indiactes if a device is mapped at the address
+        mmio.set([false; 4503599627370496])
+    }
+    /*
+        Direct access to RAM/MMIO for Init
+    */
+    mut fn read_physical_address_ram(address: PhyAddr) -> Byte{
+        ram.load(address)
+    }
+    mut fn read_physical_address_ram_2B(address: PhyAddr) -> Word{
+        ram.load(address+1) ## ram.load(address)
+    }
+    mut fn read_physical_address_ram_4B(address: PhyAddr) -> DoubleWord{
+        ram.load(address+3) ## ram.load(address+2) ## ram.load(address+1) ## ram.load(address)
+    }
+    mut fn read_physical_address_ram_8B(address: PhyAddr) -> QuadWord{
+        ram.load(address+7) ## ram.load(address+6) ## ram.load(address+5) ## ram.load(address+4) ## ram.load(address+3) ## ram.load(address+2) ## ram.load(address+1) ## ram.load(address)
+    }
+    mut fn read_physical_address_mmio(address: PhyAddr) -> Byte{
+        if(mmio.load(address)){
+            any<Byte>
+        }
+        else{
+            0xFF_u8
+        }
+    }
+    mut fn read_physical_address_mmio_4B(address: PhyAddr) -> DoubleWord{
+        read_physical_address_mmio(address + 3) ## read_physical_address_mmio(address + 2)
+        ## read_physical_address_mmio(address + 1) ## read_physical_address_mmio(address)
+    }
+    mut fn read_physical_address_mmio_8B(address: PhyAddr) -> QuadWord{
+        read_physical_address_mmio(address + 7) ##  read_physical_address_mmio(address + 6) ## read_physical_address_mmio(address + 5)
+        ## read_physical_address_mmio(address + 4) ## read_physical_address_mmio(address + 3) ## read_physical_address_mmio(address + 2)
+        ## read_physical_address_mmio(address + 1) ## read_physical_address_mmio(address)
+    }   
+    mut fn write_physical_address_ram(address: PhyAddr, value: Byte){
+        ram.store(address, value);
+    }
+    mut fn write_physical_address_ram_2B(address: PhyAddr, value: Word){
+        ram.store(address+1, value[15 downto 8]);
+        ram.store(address, value[7 downto 0]);
+    }
+    mut fn write_physical_address_ram_4B(address: PhyAddr, value: DoubleWord){
+        ram.store(address+3, value[31 downto 24]);
+        ram.store(address+2, value[23 downto 16]);
+        ram.store(address+1, value[15 downto 8]);
+        ram.store(address, value[7 downto 0]);
+    }
+    mut fn write_physical_address_ram_8B(address: PhyAddr, value: QuadWord){
+        ram.store(address+7, value[63 downto 56]);
+        ram.store(address+6, value[55 downto 48]);
+        ram.store(address+5, value[47 downto 40]);
+        ram.store(address+4, value[39 downto 32]);
+        ram.store(address+3, value[31 downto 24]);
+        ram.store(address+2, value[23 downto 16]);
+        ram.store(address+1, value[15 downto 8]);
+        ram.store(address, value[7 downto 0]);
+    }
+    mut fn write_physical_address_mmio(address: PhyAddr, value: Byte){
+        // ignores
+    }
+    mut fn write_physical_address_mmio_4B(address: PhyAddr, value: DoubleWord){
+        // ignores
+    }
+    mut fn write_physical_address_mmio_8B(address: PhyAddr, value: QuadWord){
+        // ignores
+    }
+    fn get_error_code() -> QuadWord{
+        error_code.get()
+    }
+    /*
+        Physical Operations
+    */
+    mut fn read_phy(address: PhyAddr) -> Byte{
+        let SMM: Bool = reg.get_smm_active();
+        let SMM_ADDR: QuadWord = reg.get_SMM_ADDR();
+        let SMM_MASK: QuadWord = reg.get_SMM_MASK();
+
+        if((SMM == true && SMM_MASK[3] == true) || // In SMM and TCLOSE or not SMM => MMIO
+            (address[51 downto 17] & SMM_MASK[51 downto 17] == SMM_ADDR[51 downto 17] & SMM_MASK[51 downto 17] && !SMM)){ // When in TSEG region and not SMM => MMIO
+            if(mmio.load(address)){
+                any<Byte>
+            }
+            else{
+                0xFF_u8
+            }
+        }
+        else {
+            ram.load(address) // read RAM
+        }
+    }
+    mut fn read_phy_8B(address: PhyAddr) -> QuadWord{
+        read_phy(address+7) ## read_phy(address+6) ## read_phy(address+5) ## read_phy(address+4) ## 
+        read_phy(address+3) ## read_phy(address+2) ## read_phy(address+1) ## read_phy(address)
+    }
+    mut fn write_phy(address: PhyAddr, value: Byte){
+        let SMM: Bool = reg.get_smm_active();
+        let SMM_ADDR: QuadWord = reg.get_SMM_ADDR();
+        let SMM_MASK: QuadWord = reg.get_SMM_MASK();
+
+        if((SMM == true && SMM_MASK[3] == true) || // In SMM and TCLOSE => MMIO
+            (address[51 downto 17] & SMM_MASK[51 downto 17] == SMM_ADDR[51 downto 17] & SMM_MASK[51 downto 17] && !SMM)){ // When in TSEG region and not SMM => MMIO
+                // Does nothing
+        }
+        else {
+            ram.store(address, value); // write to RAM
+        };
+       
+    }
+    mut fn write_phy_8B(address: PhyAddr, value: QuadWord){
+        write_phy(address, value[7 downto 0]);
+        write_phy(address+1, value[15 downto 8]);
+        write_phy(address+2, value[23 downto 16]);
+        write_phy(address+3, value[31 downto 24]);
+        write_phy(address+4, value[39 downto 32]);
+        write_phy(address+5, value[47 downto 40]);
+        write_phy(address+6, value[55 downto 48]);
+        write_phy(address+7, value[63 downto 56]);
+       
+    }
+    mut fn read_instruction_32(address: PhyAddr) -> DoubleWord{
+        let SMM: Bool = reg.get_smm_active();
+        let SMM_ADDR: QuadWord = reg.get_SMM_ADDR();
+        let SMM_MASK: QuadWord = reg.get_SMM_MASK();
+
+        if(address[51 downto 17] & SMM_MASK[51 downto 17] == SMM_ADDR[51 downto 17] & SMM_MASK[51 downto 17] && !SMM){ // When in TSEG region and not SMM => MMIO
+            read_physical_address_mmio_4B(address)
+        }
+        else {
+            read_physical_address_ram_4B(address) // read RAM
+        }
+    }
+    mut fn read_instruction_64(address: PhyAddr) -> QuadWord{
+        let SMM: Bool = reg.get_smm_active();
+        let SMM_ADDR: QuadWord = reg.get_SMM_ADDR();
+        let SMM_MASK: QuadWord = reg.get_SMM_MASK();
+
+        if(address[51 downto 17] & SMM_MASK[51 downto 17] == SMM_ADDR[51 downto 17] & SMM_MASK[51 downto 17] && !SMM){ // When in TSEG region and not SMM => MMIO
+            read_physical_address_mmio_8B(address)
+        }
+        else {
+            read_physical_address_ram_8B(address)
+        }
+    }
+    /*
+        Address translation (Real, Segmentation, Paging)
+    */
+    // Local Vars for page walk
+    instance pointer: State<PhyAddr>(0); // base address
+
+    instance done: State<Bool>(false);
+    instance no_execute: State<Bool>(false); // execute = 0 | no execute = 1 (or-connected)
+    instance read_write: State<Bool>(true); // read-only = 0 | read/write = 1 (and-connected) => Page Fault when trying to write
+    instance user_super: State<Bool>(true); // supervisor = 0 | user = 1 (and-connected)
+    mut fn page_walk(VR_address: VrAddr, segment_reg: Segment_Selector) -> PhyAddr{ // VA -> PA
+        let upper_address_ignore = reg.get_EFER()[20]; // to ignore 63:57 bits for cannocial form
+        let pml5 = reg.get_CR4()[12]; // Check if PML5 is active
+        let cr3 = reg.get_CR3(); // Get Base address of the PML4/PML5
+
+        // Init states
+        pointer.set(cr3[51 downto 12] ## 0_u12);
+        error.set(false);
+        error_code.set(0);
+
+        done.set(false);
+        no_execute.set(false);
+        read_write.set(true);
+        user_super.set(true);
+        /*
+            Canonical check
+        */
+        /* 
+            PML5 => When upper address ignore is active, the cannocial check has to be performed on the bits 63 down to 57 for all segment registers that are used to access memory except DS and ES. 
+            PML4 => When upper address ignore is active, the cannocial check has to be performed on the bits 63 down to 48 for all segment registers that are used to access memory except DS and ES. 
+        */
+        if((pml5 && !upper_address_ignore && VR_address[56 downto 56] == 0 && VR_address[63 downto 57] != 0b000_0000) 
+            || (pml5 && !upper_address_ignore && VR_address[56 downto 56] == 1 && VR_address[63 downto 57] != 0b111_1111)
+            || (pml5 && upper_address_ignore && VR_address[56 downto 56] == 0 && VR_address[63 downto 57] != 0b000_0000 && (segment_reg == E_CS || segment_reg == E_SS || segment_reg == E_FS || segment_reg == E_GS))
+            || (pml5 && upper_address_ignore && VR_address[56 downto 56] == 1 && VR_address[63 downto 57] != 0b111_1111 && (segment_reg == E_CS || segment_reg == E_SS || segment_reg == E_FS || segment_reg == E_GS))) {
+                error.set(true);
+                error_code.set(13); // GP
+               
+        }
+        else if((!pml5 && !upper_address_ignore && VR_address[47 downto 47] == 0 && VR_address[63 downto 48] != 0b0000_0000_0000_0000)
+                || (!pml5 && !upper_address_ignore && VR_address[47 downto 47] == 1 && VR_address[63 downto 48] != 0b1111_1111_1111_1111) 
+                || (!pml5 && upper_address_ignore && VR_address[47 downto 47] == 0 && VR_address[56 downto 48] != 0b0_0000_0000) 
+                || (!pml5 && upper_address_ignore && VR_address[47 downto 47] == 1 && VR_address[56 downto 48] != 0b1_1111_1111) 
+                || (!pml5 && upper_address_ignore && VR_address[47 downto 47] == 0 && VR_address[63 downto 48] != 0b0000_0000_0000_0000 && (segment_reg == E_CS || segment_reg == E_SS || segment_reg == E_FS || segment_reg == E_GS)) 
+                || (!pml5 && upper_address_ignore && VR_address[47 downto 47] == 1 && VR_address[63 downto 48] != 0b1111_1111_1111_1111 && (segment_reg == E_CS || segment_reg == E_SS || segment_reg == E_FS || segment_reg == E_GS))) {
+                error.set(true);
+                error_code.set(13); // GP
+               
+        }
+        else {()};
+
+        /*
+            PML5
+        */
+        if(!error.get() && pml5) {
+            let address_offset: PhyAddr = (0_u40 ## VR_address[56 downto 48] ## 0_u3);
+            let entry: QuadWord = read_phy_8B((pointer.get() + address_offset)); // Get PML5E
+
+            no_execute.set(no_execute.get() || entry[63]);
+            read_write.set(read_write.get() && entry[1]);
+            user_super.set(user_super.get() && entry[2]);
+
+            if(entry[0]){
+                pointer.set(entry[51 downto 12] ## 0_u12);
+               
+            }
+            else {
+                error.set(true);
+                error_code.set(14); // PF
+               
+            }
+
+        }
+        else {()};
+        /*
+            PML4
+        */
+        if(!error.get()) {
+            let address_offset: PhyAddr = (0_u40 ## VR_address[47 downto 39] ## 0_u3);
+            let entry: QuadWord = read_phy_8B((pointer.get() + address_offset)); // Get PML4E
+
+            no_execute.set(no_execute.get() || entry[63]);
+            read_write.set(read_write.get() && entry[1]);
+            user_super.set(user_super.get() && entry[2]);
+
+            if(entry[0]){
+                pointer.set(entry[51 downto 12] ## 0_u12);
+               
+            }
+            else {
+                error.set(true);
+                error_code.set(14); // PF
+               
+            }
+        }
+        else {()};
+        /*
+            PDPT, when 1GB page done
+        */
+        if(!error.get()) {
+            let address_offset: PhyAddr = (0_u40 ## VR_address[38 downto 30] ## 0_u3);
+            let entry: QuadWord = read_phy_8B((pointer.get() + address_offset)); // Get PDPE
+
+            no_execute.set(no_execute.get() || entry[63]);
+            read_write.set(read_write.get() && entry[1]);
+            user_super.set(user_super.get() && entry[2]);
+
+            if(entry[0] && entry[7]){
+                pointer.set((entry[51 downto 30] ## 0_u30) + (0_u22 ## VR_address[29 downto 0])); // 1 GB page
+                done.set(true);
+               
+            }
+            else if(entry[0]){
+                 pointer.set((entry[51 downto 12] ## 0_u12)); // Pointer to PDT
+                
+            }
+            else {
+                error.set(true);
+                error_code.set(14); // PF
+               
+            }
+        }
+        else {()};
+        /*
+            PDT, when 2MB page done
+        */
+        if(!error.get() && !done.get()) {
+            let address_offset: PhyAddr = (0_u40 ## VR_address[29 downto 21] ## 0_u3);
+            let entry: QuadWord = read_phy_8B((pointer.get() + address_offset)); // Get PDE
+
+            no_execute.set(no_execute.get() || entry[63]);
+            read_write.set(read_write.get() && entry[1]);
+            user_super.set(user_super.get() && entry[2]);
+
+            if(entry[0] && entry[7]){
+                pointer.set((entry[51 downto 21] ## 0_u21) + (0_u31 ## VR_address[20 downto 0])); // 2MB page
+                done.set(true);
+               
+            }
+            else if(entry[0]){
+                 pointer.set((entry[51 downto 12] ## 0_u12)); // Pointer to PDT
+                
+            }
+            else {
+                error.set(true);
+                error_code.set(14); // PF
+               
+            }
+        }
+        else {()};
+        /*
+            PT, 4KB page
+        */
+        if(!error.get() && !done.get()) {
+            let address_offset: PhyAddr = (0_u40 ## VR_address[20 downto 12] ## 0_u3);
+            let entry: QuadWord = read_phy_8B((pointer.get() + address_offset)); // Get PTE
+
+            no_execute.set(no_execute.get() || entry[63]);
+            read_write.set(read_write.get() && entry[1]);
+            user_super.set(user_super.get() && entry[2]);
+
+            if(entry[0]){
+                pointer.set((entry[51 downto 12] ## 0_u12) + (0_u40 ## VR_address[11 downto 0])); 
+                done.set(true);
+               
+            }
+            else {
+                error.set(true);
+                error_code.set(14); // PF
+               
+            }
+        }
+        else {()};
+
+        pointer.get()
+    }
+    mut fn legacy_page_walk(VR_address: VrAddr) -> PhyAddr{ 
+        let pae = reg.get_CR4()[5];
+        let cr3 = reg.get_CR3();
+
+        // Init local vars
+        done.set(false);
+        no_execute.set(false);
+        user_super.set(true);
+
+        if(pae){ // Page extension active
+            pointer.set(cr3[51 downto 12] ## 0_u12);
+            let address_offset: PhyAddr = (0_u47 ## VR_address[31 downto 30] ## 0_u3);
+            let entry: QuadWord = read_phy_8B(pointer.get() + address_offset); // PDPE
+
+            if(entry[0]){
+                pointer.set(entry[51 downto 12] ## 0_u12);
+               
+            }
+            else {
+                error.set(true);
+                error_code.set(14); // PF
+               
+            };
+
+            if(!error.get()){
+                let address_offset: PhyAddr = (0_u40 ## VR_address[29 downto 21] ## 0_u3);
+                let entry: QuadWord = read_phy_8B(pointer.get() + address_offset); // PDE
+
+                no_execute.set(no_execute.get() || entry[63]);
+                read_write.set(read_write.get() && entry[1]);
+                user_super.set(user_super.get() && entry[2]);
+
+                if(entry[0] && entry[7]){
+                    pointer.set((entry[51 downto 21] ## 0_u21) + (0_u31 ## VR_address[20 downto 0]));
+                    done.set(true);
+                   
+                }
+                else if(entry[0] && !entry[7]){
+                    pointer.set(entry[51 downto 12] ## 0_u12);
+                   
+                }
+                else {
+                    error.set(true);
+                    error_code.set(14);
+                   
+                };
+               
+            }
+            else{()};
+
+            if(!error.get() && !done.get()){
+                let address_offset: PhyAddr = (0_u40 ## VR_address[20 downto 12] ## 0_u3);
+                let entry: QuadWord = read_phy_8B(pointer.get() + address_offset); // PTE
+
+                no_execute.set(no_execute.get() || entry[63]);
+                read_write.set(read_write.get() && entry[1]);
+                user_super.set(user_super.get() && entry[2]);
+                if(entry[0]){
+                    pointer.set((entry[51 downto 12] ## 0_u12) + (0_u39 ## VR_address[12 downto 0]));
+                   
+                }
+                else {
+                    error.set(true);
+                    error_code.set(14);
+                   
+                };
+               
+            }
+            else{()};
+           
+        }
+        else { // Page extension not active
+            pointer.set(0_u20 ## cr3[31 downto 5] ## 0_u5);
+            let address_offset: PhyAddr = (0_u40 ## VR_address[31 downto 22] ## 0_u2);
+            let entry: DoubleWord = read_phy_8B((pointer.get() + address_offset))[31 downto 0]; // Get PDE
+
+            read_write.set(read_write.get() && entry[1]);
+            user_super.set(user_super.get() && entry[2]);
+
+            if(entry[0] && !entry[7]){
+                pointer.set(0_u20 ## entry[31 downto 12] ## 0_u12);
+               
+            }
+            else if(entry[0] && entry[7]){
+                pointer.set((0_u12 ## entry[20 downto 13] ## entry[31 downto 22] ## 0_u22) + (0_u30 ## VR_address[21 downto 0]));
+                done.set(true);
+               
+            }
+            else {
+                error.set(true);
+                error_code.set(14); // PF
+               
+            };
+
+            if(!error.get() && !done.get()){
+                let address_offset: PhyAddr = (0_u40 ## VR_address[21 downto 12] ## 0_u2);
+                let entry: DoubleWord = read_phy_8B((pointer.get() + address_offset))[31 downto 0]; // Get PTE
+
+                read_write.set(read_write.get() && entry[1]);
+                user_super.set(user_super.get() && entry[2]);
+
+                if(entry[0]){
+                    pointer.set((0_u20 ## entry[31 downto 12] ## 0_u12) + (0_u40 ## VR_address[11 downto 0]));
+                   
+                }
+                else {
+                    error.set(true);
+                    error_code.set(14); // PF
+                   
+                };
+               
+            }
+            else {()};
+           
+        };
+        pointer.get()
+    }
+    /*
+        Address translation, Segmentation
+    */
+    instance code_block: State<Bool>(false);
+    mut fn segment_address_translation(address: VrAddr, segment_reg:Segment_Selector) -> PhyAddr{
+        error.set(false);
+        error_code.set(0);
+        code_block.set(false);
+
+        let paging = reg.get_CR0()[31];
+
+        let GDT_offset: QuadWord = match segment_reg { // GDTR offset
+            E_CS => (0_u48 ## reg.get_CS_Selector()[15 downto 3] ## 0_u3),
+            E_DS => (0_u48 ## reg.get_DS_Selector()[15 downto 3] ## 0_u3),
+            E_SS => (0_u48 ## reg.get_SS_Selector()[15 downto 3] ## 0_u3),
+            E_ES => (0_u48 ## reg.get_ES_Selector()[15 downto 3] ## 0_u3),
+            E_FS => (0_u48 ## reg.get_FS_Selector()[15 downto 3] ## 0_u3),
+            E_GS => (0_u48 ## reg.get_GS_Selector()[15 downto 3] ## 0_u3),
+            E_CODE => (0_u48 ## reg.get_Code_Selector()[15 downto 3] ## 0_u3),
+        };
+
+        let GDT_limit: QuadWord = 0_u48 ## reg.get_GDTR_Limit();
+
+        if(GDT_offset < GDT_limit){ // check limit
+            let GDT_entry = if(!reg.get_smm_active() && paging){
+                read_phy_8B(legacy_page_walk(0_u32 ## (reg.get_GDTR_Base() + GDT_offset)[31 downto 0]))
+            }
+            else if(reg.get_smm_active() && paging){
+                read_physical_address_ram_8B(legacy_page_walk(0_u32 ## (reg.get_GDTR_Base() + GDT_offset)[31 downto 0]))
+            }
+            else if(reg.get_smm_active()){
+                read_physical_address_ram_8B(0_u20 ## (reg.get_GDTR_Base() + GDT_offset)[31 downto 0]) // have to read directly because it is an instruction
+            }
+            else {
+                read_phy_8B(0_u20 ## (reg.get_GDTR_Base() + GDT_offset)[31 downto 0])
+            };
+            
+            let read_write_desc = GDT_entry[41]; // 0 = read only / no read, 1 = read write / read
+            let data_code = GDT_entry[43]; // 0 = data, 1 = code
+            let system = GDT_entry[44]; // 0 = system descriptor , 1 = code data
+            let present = GDT_entry[47]; // Descriptor present
+
+            read_write.set(read_write_desc);
+            code_block.set(data_code);
+
+            if(system && present){ // Code/Data segment
+                let expand_down = GDT_entry[42];
+                let dpl = GDT_entry[46 downto 45];
+                let cpl = reg.get_CS_Selector()[1 downto 0];
+                let granularity = GDT_entry[55]; // for the limit
+                let operand_size = GDT_entry[54];
+
+                let descriptor_base: QuadWord = 0_u32 ## GDT_entry[63 downto 56] ## GDT_entry[39 downto 16]; // padding to 64 bit
+                let descriptor_limit: QuadWord = 0_u44 ## GDT_entry[51 downto 48] ## GDT_entry[15 downto 0]; // padding to 64 bit
+
+                if(segment_reg == E_CODE){ // For changing privilege
+
+                    let rpl = reg.get_Code_Selector()[1 downto 0];
+                    let conforming = GDT_entry[42];
+
+                    let max_offset: QuadWord = if(granularity){(descriptor_limit<< 12) + 0xFFF_u64} else{descriptor_limit}; // byte or 4096byte
+
+                    if(address <= max_offset && ((cpl <= rpl && cpl == dpl) || (conforming && cpl >= dpl))){
+                        0_u20 ## (descriptor_base + address)[31 downto 0]
+                    }
+                    else{
+                        error.set(true);
+                        error_code.set(13);
+                        0_u52
+                    }
+                }
+                else if(segment_reg == E_CS){ // For Instruction
+                    let max_offset = if(granularity){(descriptor_limit<< 12) + 0xFFF_u64} else{descriptor_limit}; // byte or 4096byte
+                    if(address <= max_offset && data_code){
+                        0_u20 ## (descriptor_base + address)[31 downto 0]
+                    }
+                    else{
+                        error.set(true);
+                        error_code.set(13);
+                        0_u52
+                    }
+                }
+                else if(segment_reg == E_SS){ // For Stack
+                    let rpl = reg.get_SS_Selector()[1 downto 0];
+
+                    if(cpl == rpl && cpl == dpl){
+                        if(expand_down){
+                            let max_offset = if(operand_size){0xFFFF_FFFF_u64} else{0xFFFF_u64};
+                            let min_offset = if(granularity){(descriptor_limit<< 12) + 0xFFF_u64 + 1_u64} else{descriptor_limit + 1};
+
+                            if(address <= max_offset && address >= min_offset){
+                                0_u20 ## (descriptor_base + address)[31 downto 0]
+                            }
+                            else{
+                                error.set(true);
+                                error_code.set(13);
+                                0_u52
+                            }
+                        }
+                        else{
+                            let max_offset = if(granularity){(descriptor_limit<< 12) + 0xFFF_u64} else{descriptor_limit}; // byte or 4096byte
+
+                            if(address <= max_offset){
+                                0_u20 ## (descriptor_base + address)[31 downto 0]
+                            }
+                            else{
+                                error.set(true);
+                                error_code.set(13);
+                                0_u52
+                            }
+                        }
+                    }
+                    else{
+                        error.set(true);
+                        error_code.set(13);
+                        0_u52
+                    }
+                }
+                else{ // For Data
+                    let rpl: BitInt(2) = match segment_reg { 
+                        E_DS => reg.get_DS_Selector()[1 downto 0],
+                        E_SS => reg.get_SS_Selector()[1 downto 0],
+                        E_ES => reg.get_ES_Selector()[1 downto 0],
+                        E_FS => reg.get_FS_Selector()[1 downto 0],
+                        E_GS => reg.get_GS_Selector()[1 downto 0],
+                    };
+
+                    if(cpl <= dpl && rpl <= dpl){
+                        if(expand_down && !data_code){
+                            let max_offset = if(operand_size){0xFFFF_FFFF_u64} else{0xFFFF_u64};
+                            let min_offset = if(granularity){(descriptor_limit<< 12) + 0xFFF_u64 + 1_u64} else{descriptor_limit + 1};
+
+                            if(address <= max_offset && address >= min_offset){
+                                0_u20 ## (descriptor_base + address)[31 downto 0]
+                            }
+                            else{
+                                error.set(true);
+                                error_code.set(13);
+                                0_u52
+                            }
+                        }
+                        else{
+                            let max_offset = if(granularity){(descriptor_limit<< 12) + 0xFFF_u64} else{descriptor_limit}; // byte or 4096byte
+
+                            if(address <= max_offset){
+                                0_u20 ## (descriptor_base + address)[31 downto 0]
+                            }
+                            else{
+                                error.set(true);
+                                error_code.set(13);
+                                0_u52
+                            }
+                        }
+                    }
+                    else{
+                        error.set(true);
+                        error_code.set(13);
+                        0_u52
+                    }
+                }
+            }
+            else{
+                error.set(true);
+                error_code.set(13);
+                0_u52
+            }
+        }
+        else {
+            error.set(true);
+            error_code.set(13);
+            0_u52
+        }
+    }
+    /*
+        Function of the memory module
+    */
+    mut fn read_va(address: QuadWord, segment_reg: Segment_Selector) -> Byte{
+        let protected = reg.get_CR0()[0]; // In protected mode
+        let paging = reg.get_CR0()[31]; // Paging enabled?
+        let smap = reg.get_CR4()[21]; // Read protection
+        let ac = reg.get_RFLAGS()[18]; // For SMAP exception
+        let lma = reg.get_EFER()[10]; // Long mode
+        let cpl = reg.get_CS_Selector()[1 downto 0]; // Privilege level cs
+
+        if(lma && paging && protected){ // Long mode paging
+            let phy_address = page_walk(address, segment_reg);
+
+            let user_super = user_super.get();
+
+            if(error.get()){ // error in page walk
+                error_code.set(13);
+                0_u8
+            }
+            else if((cpl == 3 && !user_super) ||
+                    (cpl < 3 && user_super && smap && !ac) ||
+                    segment_reg == E_CODE){ // error, not allowed to access
+                error.set(true);
+                error_code.set(13);
+                0_u8
+            }
+            else {
+                read_phy(phy_address)
+            }
+            
+        }
+        else if(paging && protected){ 
+            let linear_address = segment_address_translation(address, segment_reg); // first segment
+            let phy_address = legacy_page_walk(0_u12 ## linear_address); // then page walk
+
+            let user_super = user_super.get(); // for paging
+            let code_block = code_block.get(); // for segment 
+            let execute_read = read_write.get(); // for segment
+
+            if(error.get()){ // error 
+                0_u8
+            }
+            else if((code_block && !execute_read) || segment_reg == E_CS || segment_reg == E_CODE){ // Segment fault => try to read non readable code
+                error.set(true);
+                error_code.set(13);
+                0_u8
+            }
+            else if((cpl == 3 && user_super) ||
+                    (cpl < 3 && user_super && smap && !ac)){ // error, not allowed to access
+                error.set(true);
+                error_code.set(13);
+                0_u8
+            }
+            else {
+                read_phy(phy_address)
+            }
+        } 
+        else if(protected){
+            let phy_address = segment_address_translation(address, segment_reg);
+
+            let code_block = code_block.get(); // for segment 
+            let execute_read = read_write.get(); // for segment
+
+            if(error.get()){
+                0_u8
+            }
+            else if((code_block && !execute_read) || segment_reg == E_CS || segment_reg == E_CODE){
+                error.set(true);
+                error_code.set(13);
+                0_u8
+            }
+            else{
+                read_phy(phy_address)
+            }
+        }
+        else { // Real mode 
+            /*
+                segment << 4 + offset and then access it
+            */
+            let result: Byte = match segment_reg {
+                E_CS => error.set(true); error_code.set(13); 0_u8,
+                E_CODE => error.set(true); error_code.set(13); 0_u8,
+                E_DS => read_phy((0_u32 ## (reg.get_DS_Selector() ## 0_u4)) + (0_u36 ## address[15 downto 0])),
+                E_SS => read_phy((0_u32 ## (reg.get_SS_Selector() ## 0_u4)) + (0_u36 ## address[15 downto 0])),
+                E_ES => read_phy((0_u32 ## (reg.get_ES_Selector() ## 0_u4)) + (0_u36 ## address[15 downto 0])),
+                E_FS => read_phy((0_u32 ## (reg.get_FS_Selector() ## 0_u4)) + (0_u36 ## address[15 downto 0])),
+                E_GS => read_phy((0_u32 ## (reg.get_GS_Selector() ## 0_u4)) + (0_u36 ## address[15 downto 0])),
+            };
+            result
+        }
+    }
+
+    mut fn write_va(address: QuadWord, segment_reg: Segment_Selector, value: Byte) -> Bool{
+        let protected = reg.get_CR0()[0]; // In protected mode
+        let paging = reg.get_CR0()[31]; // Paging enabled?
+        let smap = reg.get_CR4()[21]; // Read protection
+        let wp = reg.get_CR0()[16]; // Write protection
+        let ac = reg.get_RFLAGS()[18]; // For SMAP exception
+        let lma = reg.get_EFER()[10]; // Long mode
+        let cpl = reg.get_CS_Selector()[1 downto 0]; // Privilege level cs
+
+        if(lma && paging && protected){ // Long mode paging
+            let phy_address = page_walk(address, segment_reg);
+
+            let user_super = user_super.get();
+            let read_write = read_write.get();
+
+            if(error.get()){ // error in page walk
+                false
+            }
+            else if((cpl < 3 && !user_super && !read_write && wp) // See documentation
+                    || (cpl < 3 && user_super && !read_write && !wp && smap && !ac)
+                    || (cpl < 3 && user_super && !read_write && wp)
+                    || (cpl < 3 && user_super && read_write && smap && !ac)
+                    || (cpl == 3 && !user_super)
+                    || (cpl == 3 && user_super && !read_write)
+                    || (segment_reg == E_CODE)){ // error, not allowed to access
+                error.set(true);
+                error_code.set(14);
+                false
+            }
+            else {
+                write_phy(phy_address, value);
+                true
+            }
+            
+        }
+        else if(paging && protected){
+            let linear_address = segment_address_translation(address, segment_reg);
+            let phy_address = legacy_page_walk(0_u12 ## linear_address);
+
+            let user_super = user_super.get();
+            let read_write = read_write.get();
+            let code_block = code_block.get(); // for segment 
+
+            if(error.get()){ // error in segmentation/page walk
+                false
+            }
+            else if((cpl < 3 && !user_super && !read_write && wp) // See documentation
+                    || (cpl < 3 && user_super && !read_write && !wp && smap && !ac)
+                    || (cpl < 3 && user_super && !read_write && wp)
+                    || (cpl < 3 && user_super && read_write && smap && !ac)
+                    || (cpl == 3 && !user_super)
+                    || (cpl == 3 && user_super && !read_write)
+                    || (segment_reg == E_CS)
+                    || (segment_reg == E_CODE)
+                    || (code_block)
+                    || (!read_write)){ // error, not allowed to access
+                error.set(true);
+                error_code.set(13);
+                false
+            }
+            else {
+                write_phy(phy_address, value);
+                true
+            }
+        } 
+        else if(protected){
+            /*
+                Need the selector that is used
+            */
+            let phy_address = segment_address_translation(address, segment_reg);
+
+
+            let read_write = read_write.get();
+            let code_block = code_block.get(); // for segment 
+
+            if(error.get()){
+                false
+            }
+            else if((segment_reg == E_CS)
+                    || (segment_reg == E_CODE)
+                    || (code_block)
+                    || (!read_write)){ // error, not allowed to access
+                error.set(true);
+                error_code.set(13);
+                false
+            }
+            else {
+                write_phy(phy_address, value);
+                true
+            }
+        }
+        else { // Real mode 
+            /*
+                segment << 4 + offset and then access it
+            */
+            let result: Bool = match segment_reg {
+                E_CS => error.set(true); error_code.set(13); false,
+                E_CODE => error.set(true); error_code.set(13); false,
+                E_DS => write_phy((0_u32 ## (reg.get_DS_Selector() ## 0_u4)) + address[51 downto 0], value); true,
+                E_SS => write_phy((0_u32 ## (reg.get_SS_Selector() ## 0_u4)) + address[51 downto 0], value); true,
+                E_ES => write_phy((0_u32 ## (reg.get_ES_Selector() ## 0_u4)) + address[51 downto 0], value); true,
+                E_FS => write_phy((0_u32 ## (reg.get_FS_Selector() ## 0_u4)) + address[51 downto 0], value); true,
+                E_GS => write_phy((0_u32 ## (reg.get_GS_Selector() ## 0_u4)) + address[51 downto 0], value); true,
+            };
+            result
+        }
+    }
+
+    mut fn execute_va() -> Byte{
+        let address = reg.get_RIP();
+
+        let protected = reg.get_CR0()[0]; // In protected mode
+        let paging = reg.get_CR0()[31]; // Paging enabled?
+        let smep = reg.get_CR4()[20]; // Read protection
+        let lma = reg.get_EFER()[10]; // Long mode
+        let nxe = reg.get_EFER()[11];
+        let cpl = reg.get_CS_Selector()[1 downto 0]; // Privilege level cs
+
+        if(lma && paging && protected){
+            // assert(false); // reachable
+            let phy_address = page_walk(address, E_CS);
+
+            let nx = no_execute.get();
+            let user_super = user_super.get();
+
+            if(error.get()){ // error in page walk
+                0_u8
+            }
+            else if((cpl < 3 && !user_super && nxe && nx)
+                    || (cpl < 3 && user_super && !nxe && smep)
+                    || (cpl < 3 && user_super && nxe && nx)
+                    || (cpl < 3 && user_super && nxe && !nx && smep)
+                    || (cpl == 3 && !user_super)
+                    || (cpl == 3 && user_super && nxe && nx)){ // error, not allowed to access
+                error.set(true);
+                error_code.set(14);
+                0_u8
+            }
+            else {
+                read_phy(phy_address)
+            }
+        }
+        else if(paging && protected){
+            let linear_address = segment_address_translation(address, E_CS);
+            let phy_address = legacy_page_walk(0_u12 ## linear_address);
+
+            let nx = no_execute.get();
+            let user_super = user_super.get();
+            let code_block = code_block.get();
+
+            if(error.get()){
+                0_u8
+            }
+            else if((cpl < 3 && !user_super && nxe && nx)
+                    || (cpl < 3 && user_super && !nxe && smep)
+                    || (cpl < 3 && user_super && nxe && nx)
+                    || (cpl < 3 && user_super && nxe && !nx && smep)
+                    || (cpl == 3 && !user_super)
+                    || (cpl == 3 && user_super && nxe && nx)
+                    || !code_block){ // error, not allowed to access
+                error.set(true);
+                error_code.set(14);
+                0_u8
+            }
+            else {
+                read_phy(phy_address)
+            }
+        }
+        else if(protected){
+            let phy_address = segment_address_translation(address, E_CS);
+
+            let code_block = code_block.get();
+
+            if(error.get()){
+                0_u8
+            }
+            else if(!code_block){ // error, not allowed to access
+                error.set(true);
+                error_code.set(14);
+                0_u8
+            }
+            else {
+                read_phy(phy_address)
+            }
+        }
+        else{
+            read_phy((0_u32 ## (reg.get_CS_Selector() ## 0_u4)) + address[51 downto 0])
+        }
+
+    }
+
+    mut fn exec_farjmp_32_va(address: QuadWord, selector: Word) -> Bool{
+        error.set(false);
+        error_code.set(0);
+        let cpl = reg.get_CS_Selector()[1 downto 0];
+        reg.set_Code_Selector(selector);
+        let jmp_addr = segment_address_translation((0_u32 ## address[31 downto 0]), E_CODE); // check if change is ok
+
+        let code_block = code_block.get();
+
+        if(error.get() || !code_block){
+            false
+        }
+        else if(reg.get_smm_active()){ // for smm
+            reg.set_RIP(0_u32 ## jmp_addr[31 downto 0]);
+            reg.set_CS_Selector(selector[15 downto 3] ## 0_u1 ##cpl);
+            true
+        }
+        else {
+            reg.set_RIP(address); // linear address
+            reg.set_CS_Selector(selector [15 downto 3] ## 0_u1 ## cpl);
+            true
+        }
+    }
+
+    mut fn exec_farjmp_64_va(address: QuadWord, selector: Word) -> Bool{
+        error.set(false);
+        error_code.set(0);
+
+        let GDT_offset = selector[15 downto 3] ## 0_u3;
+        let GDT_limit = reg.get_GDTR_Limit();
+
+        if(GDT_offset < GDT_limit){
+            let phy_address_gdt = page_walk((reg.get_GDTR_Base() + (0_u48 ## GDT_offset)), E_DS);
+            let GDT_entry = read_phy_8B(phy_address_gdt);
+
+            let rpl = selector[1 downto 0];
+            let cpl = reg.get_CS_Selector()[1 downto 0];
+            let dpl = GDT_entry[46 downto 45];
+
+            let conforming = GDT_entry[42];
+            let code_data = GDT_entry[43]; // 0 = data, 1 = code
+            let system_codedata = GDT_entry[44]; // 0 = system, 1 = code data
+            let present = GDT_entry[47];
+            let long_mode = GDT_entry[53];
+            let operand_size = GDT_entry[54];
+            
+            if(!error.get() && present && code_data && system_codedata && long_mode && !operand_size &&
+                ((!conforming && cpl == dpl && rpl <= cpl) ||
+                 (conforming && cpl >= dpl))){
+
+                let old_address = reg.get_RIP();
+                reg.set_RIP(address);
+                let result = execute_va(); // check if execution is allowed there
+
+                if(!error.get()){
+                    reg.set_CS_Selector(selector[15 downto 3] ## 0_u1 ## cpl);
+                    true
+                }
+                else{
+                    reg.set_RIP(old_address);
+                    false
+                }
+            }
+            else{
+                error.set(true);
+                error_code.set(13);
+                false
+            }
+        }
+        else {
+            error.set(true);
+            error_code.set(13);
+            false
+        }
+    }
+    /*
+        Long mode setup
+    */
+    mut fn init_longmode_structs(){
+        /*
+            Paging Structure
+        */
+        /*
+            For Variable page placement
+            1. We assume it is over the TSEG region and that it fits into the 52 Physical address space
+        */
+        // let start_address: PhyAddr = any;
+        // assume((start_address[51 downto 17] & reg.SMM_MASK.get()[51 downto 17] != reg.SMM_ADDR.get()[51 downto 17] & reg.SMM_MASK.get()[51 downto 17]) // Not in the TSEG region 
+        //         && (start_address[51 downto 17] >= reg.SMM_ADDR.get()[51 downto 17]) // Bigger than the SMM_ADDR => bottom for booting
+        //         && (start_address[11 downto 0] == 0_u12) // 4 KB alignment
+        //         && (start_address <= 0xF_FFFF_FFFF_0000)); // Can fit in the memory
+        
+        let start_address: PhyAddr = 0x0004_0000_u52; // Over the TSEG region just to test
+
+        let init_ram = [0_u8; 65536]; // Set the paging region to zero
+        let ram = ram.get(); // Get the ram vector
+        let ram_init = ram[start_address..:=init_ram]; // set the ram place to zero with vector updating
+        ram.set(ram_init);
+        assert(ram.load(start_address) == 0);
+
+        let cr3 = if(reg.get_CR4()[12]){start_address + 0x3000_u52} else {start_address + 0x4000_u52}; // 5 level paging?
+        reg.set_CR3(0_u12 ## cr3[51 downto 12] ## 0_u12);
+
+        /*
+            PML5T
+        */
+        let entry_address = start_address + 0x4000_u52;
+        //           NX      AVL            PML4 Address            AVL     MBZ    IGN      A       PCD     PWT     U/S    R/W      P
+        let entry = 0_u1 ## 0_u11 ## entry_address[51 downto 12] ## 0_u3 ## 0_u2 ## 0_u1 ## 0_u1 ## 0_u1 ## 0_u1 ## 1_u1 ## 1_u1 ## 1_u1; // PML4 address
+        let address = start_address + 0x3000_u52;
+        write_physical_address_ram_8B(address, entry);
+        /*
+            PML4T
+        */
+        let entry_address = start_address + 0x5000_u52;
+        //           NX      AVL      PDPT Kernel Address           AVL     MBZ    IGN      A       PCD     PWT     U/S    R/W      P
+        let entry = 0_u1 ## 0_u11 ## entry_address[51 downto 12] ## 0_u3 ## 0_u2 ## 0_u1 ## 0_u1 ## 0_u1 ## 0_u1 ## 0_u1 ## 1_u1 ## 1_u1; // PDPT Kernel
+        let address = start_address + 0x4000_u52 + 0xFF8_u52; // Entry 511
+        write_physical_address_ram_8B(address, entry);
+
+        let entry_address = start_address + 0x8000_u52;
+        //           NX      AVL      PDPT User Address             AVL     MBZ    IGN      A       PCD     PWT     U/S    R/W      P
+        let entry = 0_u1 ## 0_u11 ## entry_address[51 downto 12] ## 0_u3 ## 0_u2 ## 0_u1 ## 0_u1 ## 0_u1 ## 0_u1 ## 1_u1 ## 1_u1 ## 1_u1; // PDPT User
+        let address = start_address + 0x4000_u52;
+        write_physical_address_ram_8B(address, entry);
+        /*
+            PDPT
+        */
+        let entry_address = start_address + 0x6000_u52;
+        //           NX      AVL      PDPT Kernel Address           AVL   IGN,0    IGN      A       PCD     PWT     U/S    R/W      P
+        let entry = 0_u1 ## 0_u11 ## entry_address[51 downto 12] ## 0_u3 ## 0_u2 ## 0_u1 ## 0_u1 ## 0_u1 ## 0_u1 ## 0_u1 ## 1_u1 ## 1_u1; // PDT Kernel
+        let address = start_address + 0x5000_u52;
+        write_physical_address_ram_8B(address, entry);
+
+        let entry_address = start_address + 0x9000_u52;
+        //           NX      AVL      PDPT User Address             AVL   IGN,0    IGN      A       PCD     PWT     U/S    R/W      P
+        let entry = 0_u1 ## 0_u11 ## entry_address[51 downto 12] ## 0_u3 ## 0_u2 ## 0_u1 ## 0_u1 ## 0_u1 ## 0_u1 ## 1_u1 ## 1_u1 ## 1_u1; // PDT User
+        let address = start_address + 0x8000_u52;
+        write_physical_address_ram_8B(address, entry);
+        /* 
+            PDT
+        */
+        let entry_address = start_address + 0x7000_u52;
+        //           NX      AVL      PDPT Kernel Address           AVL   IGN,0    IGN      A       PCD     PWT     U/S    R/W      P
+        let entry = 0_u1 ## 0_u11 ## entry_address[51 downto 12] ## 0_u3 ## 0_u2 ## 0_u1 ## 0_u1 ## 0_u1 ## 0_u1 ## 0_u1 ## 1_u1 ## 1_u1; // PT Kernel
+        let address = start_address + 0x6000_u52;
+        write_physical_address_ram_8B(address, entry);
+
+        let entry_address = start_address + 0xA000_u52;
+        //           NX      AVL      PDPT User Address             AVL   IGN,0    IGN      A       PCD     PWT     U/S    R/W      P
+        let entry = 0_u1 ## 0_u11 ## entry_address[51 downto 12] ## 0_u3 ## 0_u2 ## 0_u1 ## 0_u1 ## 0_u1 ## 0_u1 ## 1_u1 ## 1_u1 ## 1_u1; // PT Use
+        let address = start_address + 0x9000_u52;
+        write_physical_address_ram_8B(address, entry);
+        /*
+            PT
+        */
+        let address = start_address + 0x7000_u52;
+
+        let entry_address = start_address + 0x0000_u52;
+        //           NX      AVL       Data Structures Address     AVL      G       PAT      D       A       PCD    PWT     U/S     R/W      P
+        let entry = 1_u1 ## 0_u11 ## entry_address[51 downto 12] ## 0_u3 ## 1_u1 ##  0_u1 ## 0_u1 ## 0_u1 ## 0_u1 ## 0_u1 ## 0_u1 ## 1_u1 ## 1_u1; // Data Structures
+        write_physical_address_ram_8B(address, entry); // Data Structures
+
+        let entry_address = start_address + 0xE000_u52;
+        //           NX      AVL       Data Structures Address     AVL      G       PAT      D       A       PCD    PWT     U/S     R/W      P
+        let entry = 1_u1 ## 0_u11 ## entry_address[51 downto 12] ## 0_u3 ## 1_u1 ##  0_u1 ## 0_u1 ## 0_u1 ## 0_u1 ## 0_u1 ## 0_u1 ## 1_u1 ## 1_u1; // TSS
+        write_physical_address_ram_8B(address+8, entry); // TSS Structures
+
+        let entry_address = start_address + 0x1000_u52;
+        //           NX      AVL       Code Address                AVL      G       PAT      D       A       PCD    PWT     U/S     R/W      P
+        let entry = 0_u1 ## 0_u11 ## entry_address[51 downto 12] ## 0_u3 ## 1_u1 ##  0_u1 ## 0_u1 ## 0_u1 ## 0_u1 ## 0_u1 ## 0_u1 ## 0_u1 ## 1_u1; // Code
+        write_physical_address_ram_8B(address+16, entry); // Code
+        let entry_address = start_address + 0x2000_u52;
+        //           NX      AVL       Stack Address               AVL      G       PAT      D       A       PCD    PWT     U/S     R/W      P
+        let entry = 1_u1 ## 0_u11 ## entry_address[51 downto 12] ## 0_u3 ## 1_u1 ##  0_u1 ## 0_u1 ## 0_u1 ## 0_u1 ## 0_u1 ## 0_u1 ## 1_u1 ## 1_u1; // Stack
+        write_physical_address_ram_8B(address+24, entry); // Stack
+        let entry_address = start_address + 0x3000_u52;
+        //           NX      AVL       PML5T Address               AVL      G       PAT      D       A       PCD    PWT     U/S     R/W      P
+        let entry = 1_u1 ## 0_u11 ## entry_address[51 downto 12] ## 0_u3 ## 1_u1 ##  0_u1 ## 0_u1 ## 0_u1 ## 0_u1 ## 0_u1 ## 0_u1 ## 1_u1 ## 1_u1; // PML5T
+        write_physical_address_ram_8B(address+32, entry); // PML5T
+        let entry_address = start_address + 0x4000_u52;
+        //           NX      AVL       PML4T Address               AVL      G       PAT      D       A       PCD    PWT     U/S     R/W      P
+        let entry = 1_u1 ## 0_u11 ## entry_address[51 downto 12] ## 0_u3 ## 1_u1 ##  0_u1 ## 0_u1 ## 0_u1 ## 0_u1 ## 0_u1 ## 0_u1 ## 1_u1 ## 1_u1; // PML4T
+        write_physical_address_ram_8B(address+40, entry); // PML4T
+        let entry_address = start_address + 0x5000_u52;
+        //           NX      AVL       PDPT Kernel Address         AVL      G       PAT      D       A       PCD    PWT     U/S     R/W      P
+        let entry = 1_u1 ## 0_u11 ## entry_address[51 downto 12] ## 0_u3 ## 1_u1 ##  0_u1 ## 0_u1 ## 0_u1 ## 0_u1 ## 0_u1 ## 0_u1 ## 1_u1 ## 1_u1; // PDPT Kernel
+        write_physical_address_ram_8B(address+48, entry); // PDPT Kernel
+        let entry_address = start_address + 0x6000_u52;
+        //           NX      AVL       PDT Kernel Address          AVL      G       PAT      D       A       PCD    PWT     U/S     R/W      P
+        let entry = 1_u1 ## 0_u11 ## entry_address[51 downto 12] ## 0_u3 ## 1_u1 ##  0_u1 ## 0_u1 ## 0_u1 ## 0_u1 ## 0_u1 ## 0_u1 ## 1_u1 ## 1_u1; // PDT Kernel
+        write_physical_address_ram_8B(address+56, entry); // PDT Kernel
+        let entry_address = start_address + 0x7000_u52;
+        //           NX      AVL       PT Kernel Address           AVL      G       PAT      D       A       PCD    PWT     U/S     R/W      P
+        let entry = 1_u1 ## 0_u11 ## entry_address[51 downto 12] ## 0_u3 ## 1_u1 ##  0_u1 ## 0_u1 ## 0_u1 ## 0_u1 ## 0_u1 ## 0_u1 ## 1_u1 ## 1_u1; // PT Kernel
+        write_physical_address_ram_8B(address+64, entry); // PT Kernel
+
+        let entry_address = start_address + 0x8000_u52;
+        //           NX      AVL       PDPT User Address           AVL      G       PAT      D       A       PCD    PWT     U/S     R/W      P
+        let entry = 1_u1 ## 0_u11 ## entry_address[51 downto 12] ## 0_u3 ## 0_u1 ##  0_u1 ## 0_u1 ## 0_u1 ## 0_u1 ## 0_u1 ## 0_u1 ## 1_u1 ## 1_u1; // PDPT User
+        write_physical_address_ram_8B(address+72, entry); // PDPT User
+        let entry_address = start_address + 0x9000_u52;
+        //           NX      AVL       PDT User Address            AVL      G       PAT      D       A       PCD    PWT     U/S     R/W      P
+        let entry = 1_u1 ## 0_u11 ## entry_address[51 downto 12] ## 0_u3 ## 0_u1 ##  0_u1 ## 0_u1 ## 0_u1 ## 0_u1 ## 0_u1 ## 0_u1 ## 1_u1 ## 1_u1; // PDT User
+        write_physical_address_ram_8B(address+80, entry); // PDT User
+        let entry_address = start_address + 0xA000_u52;
+        //           NX      AVL       PT User Address             AVL      G       PAT      D       A       PCD    PWT     U/S     R/W      P
+        let entry = 1_u1 ## 0_u11 ## entry_address[51 downto 12] ## 0_u3 ## 0_u1 ##  0_u1 ## 0_u1 ## 0_u1 ## 0_u1 ## 0_u1 ## 0_u1 ## 1_u1 ## 1_u1; // PT User
+        write_physical_address_ram_8B(address+88, entry); // PT User
+
+
+        // User
+        let address = start_address + 0xA000_u52;
+
+        let entry_address = start_address + 0xB000_u52;
+        //           NX      AVL       Data User Address           AVL      G       PAT      D       A       PCD    PWT     U/S     R/W      P
+        let entry = 1_u1 ## 0_u11 ## entry_address[51 downto 12] ## 0_u3 ## 0_u1 ##  0_u1 ## 0_u1 ## 0_u1 ## 0_u1 ## 0_u1 ## 1_u1 ## 1_u1 ## 1_u1; // Data User
+        write_physical_address_ram_8B(address, entry); // Data
+        let entry_address = start_address + 0xC000_u52;
+        //           NX      AVL       Code User Address           AVL      G       PAT      D       A       PCD    PWT     U/S     R/W      P
+        let entry = 0_u1 ## 0_u11 ## entry_address[51 downto 12] ## 0_u3 ## 0_u1 ##  0_u1 ## 0_u1 ## 0_u1 ## 0_u1 ## 0_u1 ## 1_u1 ## 0_u1 ## 1_u1; // Code User
+        write_physical_address_ram_8B(address+8, entry); // Code
+        let entry_address = start_address + 0xD000_u52;
+        //           NX      AVL       Stack User Address          AVL      G       PAT      D       A       PCD    PWT     U/S     R/W      P
+        let entry = 1_u1 ## 0_u11 ## entry_address[51 downto 12] ## 0_u3 ## 0_u1 ##  0_u1 ## 0_u1 ## 0_u1 ## 0_u1 ## 0_u1 ## 1_u1 ## 1_u1 ## 1_u1; // Stack User
+        write_physical_address_ram_8B(address+16, entry); // Stack
+
+        // ----------------------------------------------------------------------------------------------------------------------------------------
+        /*
+            Global Descriptor Table
+            *------------------*
+            |   TSS second 8B  | +64
+            *------------------* 
+            |   TSS first 8B   | +56
+            *------------------* 
+            |    Code Ring 3   | +48
+            *------------------* 
+            |    Data Ring 3   | +40
+            *------------------*
+            | Code Ring 3 (32B)| +32
+            *------------------* 
+            |    Data Ring 0   | +24
+            *------------------* 
+            |    Code Ring 0   | +16
+            *------------------*
+            | Code Ring 0 (32B)| +8
+            *------------------*
+            |  Null Descriptor | +0
+            *------------------*
+
+            Took a look at the Linux kernel + assumption that the TSS is just added to the end
+            https://github.com/torvalds/linux/blob/master/arch/x86/kernel/cpu/common.c#L123 10.June.2025, line 202
+        */
+        let GDT_vraddress = if(reg.get_CR4()[12]){0x0000_FF80_0000_0000_u64}else{0xFFFF_FF80_0000_0000_u64};
+        let GDT_phyaddress = start_address;
+        let temp = page_walk(GDT_vraddress, E_DS);
+        assert(temp == GDT_phyaddress && !error.get()); // Check setup
+
+        // Null Descriptor
+        write_physical_address_ram_8B(start_address, 0_u64);
+        // Code Ring 0 32Bit ~ GDT_ENTRY_INIT(DESC_CODE32, 0, 0xfffff),
+        //               Base    G       D       L       AVL     Limit     P       DPL     Sys     Code    C        R       A      Base    Base     Limit 
+        let descriptor = 0_u8 ## 1_u1 ## 1_u1 ## 0_u1 ## 0_u1 ## 0xF_u4 ## 1_u1 ## 0_u2 ## 1_u1 ## 1_u1 ## 0_u1 ## 1_u1 ## 1_u1 ## 0_u8 ## 0_u16 ## 0xFFFF_u16;
+        write_physical_address_ram_8B(start_address+8, descriptor);
+        // Code Ring 0 64Bit
+        //               Base    G       D       L       AVL     Limit     P       DPL     Sys     Code    C        R       A      Base    Base     Limit 
+        let descriptor = 0_u8 ## 1_u1 ## 0_u1 ## 1_u1 ## 0_u1 ## 0xF_u4 ## 1_u1 ## 0_u2 ## 1_u1 ## 1_u1 ## 0_u1 ## 1_u1 ## 1_u1 ## 0_u8 ## 0_u16 ## 0xFFFF_u16;
+        write_physical_address_ram_8B(start_address+16, descriptor);
+        // Data Ring 0
+        //               Base    G       D/B     L       AVL     Limit     P       DPL     Sys     Data    E        W       A      Base    Base     Limit 
+        let descriptor = 0_u8 ## 1_u1 ## 1_u1 ## 1_u1 ## 0_u1 ## 0xF_u4 ## 1_u1 ## 0_u2 ## 1_u1 ## 0_u1 ## 0_u1 ## 1_u1 ## 1_u1 ## 0_u8 ## 0_u16 ## 0xFFFF_u16;
+        write_physical_address_ram_8B(start_address+24, descriptor);
+
+        // Code Ring 3 32Bit
+        //               Base    G       D       L       AVL     Limit     P       DPL     Sys     Code    C        R       A      Base    Base     Limit 
+        let descriptor = 0_u8 ## 1_u1 ## 1_u1 ## 0_u1 ## 0_u1 ## 0xF_u4 ## 1_u1 ## 3_u2 ## 1_u1 ## 1_u1 ## 0_u1 ## 1_u1 ## 1_u1 ## 0_u8 ## 0_u16 ## 0xFFFF_u16;
+        write_physical_address_ram_8B(start_address+32, descriptor);
+        // Data Ring 3
+        //               Base    G       D/B     L       AVL     Limit     P       DPL     Sys     Data    E        W       A      Base    Base     Limit 
+        let descriptor = 0_u8 ## 1_u1 ## 1_u1 ## 1_u1 ## 0_u1 ## 0xF_u4 ## 1_u1 ## 3_u2 ## 1_u1 ## 0_u1 ## 0_u1 ## 1_u1 ## 1_u1 ## 0_u8 ## 0_u16 ## 0xFFFF_u16;
+        write_physical_address_ram_8B(start_address+40, descriptor);
+        // Code Ring 3 64Bit
+        //               Base    G       D       L       AVL     Limit     P       DPL     Sys     Code    C        R       A      Base    Base     Limit 
+        let descriptor = 0_u8 ## 1_u1 ## 0_u1 ## 1_u1 ## 0_u1 ## 0xF_u4 ## 1_u1 ## 3_u2 ## 1_u1 ## 1_u1 ## 0_u1 ## 1_u1 ## 1_u1 ## 0_u8 ## 0_u16 ## 0xFFFF_u16;
+        write_physical_address_ram_8B(start_address+48, descriptor);
+        // TSS
+        // 
+        let base = GDT_vraddress + 0x1000_u64; // Virtual address of TSS
+
+        let temp = page_walk(base, E_DS); // sanity check
+        assert(temp == 0x4_E000_u52 && !error.get());
+        //               Base                  G       Res     AVL     Limit   P       DPL     0       Type      Base                  Base                 Limit
+        let descriptor = base[31 downto 24] ## 0_u1 ## 0_u2 ## 0_u1 ## 0_u4 ## 1_u1 ## 0_u2 ## 0_u1 ## 0x9_u4 ## base[23 downto 16] ## base[15 downto 0] ## 0x0FFF_u16;
+        write_physical_address_ram_8B(start_address+56, descriptor);
+        //               Res      Base
+        let descriptor = 0_u32 ## base[63 downto 32];
+        write_physical_address_ram_8B(start_address+64, descriptor);
+        /*
+            Load GDT
+        */
+        reg.set_GDTR_Limit(63_u16);
+        reg.set_GDTR_Base(GDT_vraddress);
+        /*
+            Load TR
+        */
+        reg.set_LDTR_Selector(56_u16);
+        /*
+            Load Selectors for Usermode
+        */
+        reg.set_CS_Selector(0x48_u16 + 0x3_u16); // Usermode Code
+        reg.set_DS_Selector(0x43_u16); // Usermode Data
+        reg.set_SS_Selector(0x43_u16); // Usermode Data
+       
+    }
+}

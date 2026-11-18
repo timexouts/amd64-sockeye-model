@@ -1,0 +1,594 @@
+/* 
+    In SMM mode it cab access SMRAM
+*/
+
+module SMM_Module {
+    callee mem: Memory_Module_Interface;
+    callee reg: Registers_Module;
+    
+    instance LastRIP: State<Register64>(any); // A log to show if the rip was outside the Seg region
+
+    mut fn smm_save_state(){
+        let save_addr = 0_u20 ## (reg.get_SMBASE() + 0xFE00_u32);
+        
+        // ES SAVE
+        mem.write_physical_address_ram_2B(save_addr, reg.get_ES_Selector());
+
+        mem.write_physical_address_ram_4B(save_addr+4, reg.get_ES_Limit());
+
+        mem.write_physical_address_ram_8B(save_addr+8, reg.get_ES_Base());
+        let save_addr = save_addr + 16;
+
+        assert(save_addr == (0_u20 ## (reg.get_SMBASE() + 0xFE10_u32)));
+
+        // CS SAVE
+        mem.write_physical_address_ram_2B(save_addr, reg.get_CS_Selector());
+
+        mem.write_physical_address_ram_4B(save_addr+4, reg.get_CS_Limit());
+
+        mem.write_physical_address_ram_8B(save_addr+8, reg.get_CS_Base());
+        let save_addr = save_addr + 16;
+
+        assert(save_addr == (0_u20 ## (reg.get_SMBASE() + 0xFE20_u32)));
+
+        // SS SAVE
+        mem.write_physical_address_ram_2B(save_addr, reg.get_SS_Selector());
+
+        mem.write_physical_address_ram_4B(save_addr+4, reg.get_SS_Limit());
+
+        mem.write_physical_address_ram_8B(save_addr+8, reg.get_SS_Base());
+        let save_addr = save_addr + 16;
+
+        assert(save_addr == (0_u20 ## (reg.get_SMBASE() + 0xFE30_u32)));
+
+        // DS SAVE
+        mem.write_physical_address_ram_2B(save_addr, reg.get_DS_Selector());
+
+        mem.write_physical_address_ram_4B(save_addr+4, reg.get_DS_Limit());
+
+        mem.write_physical_address_ram_8B(save_addr+8, reg.get_DS_Base());
+        let save_addr = save_addr + 16;
+
+        assert(save_addr == (0_u20 ## (reg.get_SMBASE() + 0xFE40_u32)));
+
+        // FS SAVE
+        mem.write_physical_address_ram_2B(save_addr, reg.get_FS_Selector());
+
+        mem.write_physical_address_ram_4B(save_addr+4, reg.get_FS_Limit());
+
+        mem.write_physical_address_ram_8B(save_addr+8, reg.get_FS_Base());
+        let save_addr = save_addr + 16;
+
+        assert(save_addr == (0_u20 ## (reg.get_SMBASE() + 0xFE50_u32)));
+
+         // GS SAVE
+        mem.write_physical_address_ram_2B(save_addr, reg.get_GS_Selector());
+
+        mem.write_physical_address_ram_4B(save_addr+4, reg.get_GS_Limit());
+
+        mem.write_physical_address_ram_8B(save_addr+8, reg.get_GS_Base());
+        let save_addr = save_addr + 16;
+
+        assert(save_addr == (0_u20 ## (reg.get_SMBASE() + 0xFE60_u32)));
+
+        // GDTR SAVE
+        mem.write_physical_address_ram_2B(save_addr+4, reg.get_GDTR_Limit());
+
+        mem.write_physical_address_ram_8B(save_addr+8, reg.get_GDTR_Base());
+        let save_addr = save_addr + 16;
+
+        assert(save_addr == (0_u20 ## (reg.get_SMBASE() + 0xFE70_u32)));
+
+        // LDTR Save
+        mem.write_physical_address_ram_2B(save_addr, reg.get_LDTR_Selector());
+
+        mem.write_physical_address_ram_4B(save_addr+4, reg.get_LDTR_Limit());
+
+        mem.write_physical_address_ram_8B(save_addr+8, reg.get_LDTR_Base());
+        let save_addr = save_addr + 16;
+
+        assert(save_addr == (0_u20 ## (reg.get_SMBASE() + 0xFE80_u32)));
+
+        // IDTR SAVE
+        mem.write_physical_address_ram_2B(save_addr+4, reg.get_IDTR_Limit());
+
+        mem.write_physical_address_ram_8B(save_addr+8, reg.get_IDTR_Base());
+        let save_addr = save_addr + 16;
+
+        assert(save_addr == (0_u20 ## (reg.get_SMBASE() + 0xFE90_u32)));
+
+        // TR SAVE
+        mem.write_physical_address_ram_2B(save_addr, reg.get_TR_Selector());
+
+        mem.write_physical_address_ram_4B(save_addr+4, reg.get_TR_Limit());
+
+        mem.write_physical_address_ram_8B(save_addr+8, reg.get_TR_Base());
+
+        /*
+            Register
+        */
+
+        let save_addr = 0_u20 ## (reg.get_SMBASE() + 0x0FED0_u32);
+        // EFER SAVE
+        mem.write_physical_address_ram_8B(save_addr, reg.get_EFER());
+
+        let save_addr = 0_u20 ## (reg.get_SMBASE() + 0x0FF00_u32);
+        // SMBASE SAVE ~ R/W
+        mem.write_physical_address_ram_4B(save_addr, reg.get_SMBASE());
+
+        let save_addr = 0_u20 ## (reg.get_SMBASE() + 0x0FF48_u32);
+        // CR4 SAVE
+        mem.write_physical_address_ram_8B(save_addr, reg.get_CR4());
+        let save_addr = save_addr + 8;
+
+        assert(save_addr == (0_u20 ## (reg.get_SMBASE() + 0xFF50_u32)));
+
+        // CR3 SAVE
+        mem.write_physical_address_ram_8B(save_addr, reg.get_CR3());
+        let save_addr = save_addr + 8;
+
+        assert(save_addr == (0_u20 ## (reg.get_SMBASE() + 0xFF58_u32)));
+
+        // CR0 SAVE
+        mem.write_physical_address_ram_8B(save_addr, reg.get_CR0());
+        let save_addr = save_addr + 8;
+
+        assert(save_addr == (0_u20 ## (reg.get_SMBASE() + 0xFF60_u32)));
+
+        // DR7 SAVE
+        mem.write_physical_address_ram_8B(save_addr, reg.get_DR7());
+        let save_addr = save_addr + 8;
+
+        assert(save_addr == (0_u20 ## (reg.get_SMBASE() + 0xFF68_u32)));
+
+        // DR6 SAVE
+        mem.write_physical_address_ram_8B(save_addr, reg.get_DR6());
+        let save_addr = save_addr + 8;
+
+        assert(save_addr == (0_u20 ## (reg.get_SMBASE() + 0xFF70_u32)));
+
+        // RFLAGS SAVE
+        mem.write_physical_address_ram_8B(save_addr, reg.get_RFLAGS());
+        let save_addr = save_addr + 8;
+
+        assert(save_addr == (0_u20 ## (reg.get_SMBASE() + 0xFF78_u32)));
+
+        // RIP SAVE
+        mem.write_physical_address_ram_8B(save_addr, reg.get_RIP());
+        let save_addr = save_addr + 8;
+
+        assert(save_addr == (0_u20 ## (reg.get_SMBASE() + 0xFF80_u32)));
+
+        // R15 SAVE
+        mem.write_physical_address_ram_8B(save_addr, reg.get_R15());
+        let save_addr = save_addr + 8;
+
+        assert(save_addr == (0_u20 ## (reg.get_SMBASE() + 0xFF88_u32)));
+
+        // R14 SAVE
+        mem.write_physical_address_ram_8B(save_addr, reg.get_R14());
+        let save_addr = save_addr + 8;
+
+        assert(save_addr == (0_u20 ## (reg.get_SMBASE() + 0xFF90_u32)));
+
+        // R13 SAVE
+        mem.write_physical_address_ram_8B(save_addr, reg.get_R13());
+        let save_addr = save_addr + 8;
+
+        assert(save_addr == (0_u20 ## (reg.get_SMBASE() + 0xFF98_u32)));
+
+        // R12 SAVE
+        mem.write_physical_address_ram_8B(save_addr, reg.get_R12());
+        let save_addr = save_addr + 8;
+
+        assert(save_addr == (0_u20 ## (reg.get_SMBASE() + 0xFFA0_u32)));
+
+        // R11 SAVE
+        mem.write_physical_address_ram_8B(save_addr, reg.get_R11());
+        let save_addr = save_addr + 8;
+
+        assert(save_addr == (0_u20 ## (reg.get_SMBASE() + 0xFFA8_u32)));
+
+        // R10 SAVE
+        mem.write_physical_address_ram_8B(save_addr, reg.get_R10());
+        let save_addr = save_addr + 8;
+
+        assert(save_addr == (0_u20 ## (reg.get_SMBASE() + 0xFFB0_u32)));
+
+        // R9 SAVE
+        mem.write_physical_address_ram_8B(save_addr, reg.get_R9());
+        let save_addr = save_addr + 8;
+
+        assert(save_addr == (0_u20 ## (reg.get_SMBASE() + 0xFFB8_u32)));
+
+        // R8 SAVE
+        mem.write_physical_address_ram_8B(save_addr, reg.get_R8());
+        let save_addr = save_addr + 8;
+
+        assert(save_addr == (0_u20 ## (reg.get_SMBASE() + 0xFFC0_u32)));
+
+        // RDI SAVE
+        mem.write_physical_address_ram_8B(save_addr, reg.get_RDI());
+        let save_addr = save_addr + 8;
+
+        assert(save_addr == (0_u20 ## (reg.get_SMBASE() + 0xFFC8_u32)));
+
+        // RSI SAVE
+        mem.write_physical_address_ram_8B(save_addr, reg.get_RSI());
+        let save_addr = save_addr + 8;
+
+        assert(save_addr == (0_u20 ## (reg.get_SMBASE() + 0xFFD0_u32)));
+
+        // RBP SAVE
+        mem.write_physical_address_ram_8B(save_addr, reg.get_RBP());
+        let save_addr = save_addr + 8;
+
+        assert(save_addr == (0_u20 ## (reg.get_SMBASE() + 0xFFD8_u32)));
+
+        // RSP SAVE
+        mem.write_physical_address_ram_8B(save_addr, reg.get_RSP());
+        let save_addr = save_addr + 8;
+
+        assert(save_addr == (0_u20 ## (reg.get_SMBASE() + 0xFFE0_u32)));
+
+        // RBX SAVE
+        mem.write_physical_address_ram_8B(save_addr, reg.get_RBX());
+        let save_addr = save_addr + 8;
+
+        assert(save_addr == (0_u20 ## (reg.get_SMBASE() + 0xFFE8_u32)));
+
+        // RDX SAVE
+        mem.write_physical_address_ram_8B(save_addr, reg.get_RDX());
+        let save_addr = save_addr + 8;
+
+        assert(save_addr == (0_u20 ## (reg.get_SMBASE() + 0xFFF0_u32)));
+
+        // RCX SAVE
+        mem.write_physical_address_ram_8B(save_addr, reg.get_RCX());
+        let save_addr = save_addr + 8;
+
+        assert(save_addr == (0_u20 ## (reg.get_SMBASE() + 0xFFF8_u32)));
+
+        // RAX SAVE
+        mem.write_physical_address_ram_8B(save_addr, reg.get_RAX());
+    }
+
+    mut fn smm_init_state(){
+        /*
+            Segment Register
+        */
+        reg.set_CS_Selector((reg.get_SMBASE() >> 4)[15 downto 0]);
+        reg.set_CS_Base(0_u64);
+        reg.set_CS_Limit(0xFFFF_FFFF_u32);
+        
+        reg.set_DS_Selector(0_u16);
+        reg.set_DS_Base(0_u64);
+        reg.set_DS_Limit(0xFFFF_FFFF_u32);
+
+        reg.set_ES_Selector(0_u16);
+        reg.set_ES_Base(0_u64);
+        reg.set_ES_Limit(0xFFFF_FFFF_u32);
+
+        reg.set_FS_Selector(0_u16);
+        reg.set_FS_Base(0_u64);
+        reg.set_FS_Limit(0xFFFF_FFFF_u32);
+
+        reg.set_GS_Selector(0_u16);
+        reg.set_GS_Base(0_u64);
+        reg.set_GS_Limit(0xFFFF_FFFF_u32);
+
+        reg.set_SS_Selector(0_u16);
+        reg.set_SS_Base(0_u64);
+        reg.set_SS_Limit(0xFFFF_FFFF_u32);
+        /*
+            Other Register
+        */
+        reg.set_RIP(0x8000_u64 + (0_u32 ## reg.get_SMBASE()));
+        reg.set_RFLAGS(0x0002_u64);
+        let cr0 = reg.get_CR0();
+        reg.set_CR0(cr0[63 downto 32] ## 0_u1 ## cr0[30 downto 4] ## 0_u2 ## cr0[1 downto 1] ## 0_u1);
+        reg.set_CR4(0_u64);
+        reg.set_DR7(0_u64);
+        reg.set_EFER(0_u64);
+       
+    }
+
+    mut fn smm_restore_state(){
+        let save_addr = 0_u20 ## (reg.get_SMBASE() + 0xFE00_u32);
+
+        // LOAD ES
+        let value = mem.read_physical_address_ram_2B(save_addr);
+        reg.set_ES_Selector(value);
+
+        let value = mem.read_physical_address_ram_4B(save_addr + 4);
+        reg.set_ES_Limit(value);
+
+        let value = mem.read_physical_address_ram_8B(save_addr + 8);
+        reg.set_ES_Base(value);
+
+        let save_addr = save_addr + 16;
+
+        // LOAD CS
+        let value = mem.read_physical_address_ram_2B(save_addr);
+        reg.set_CS_Selector(value);
+
+        let value = mem.read_physical_address_ram_4B(save_addr + 4);
+        reg.set_CS_Limit(value);
+
+        let value = mem.read_physical_address_ram_8B(save_addr + 8);
+        reg.set_CS_Base(value);
+        let save_addr = save_addr + 16;
+
+        // LOAD SS
+        let value = mem.read_physical_address_ram_2B(save_addr);
+        reg.set_SS_Selector(value);
+
+        let value = mem.read_physical_address_ram_4B(save_addr + 4);
+        reg.set_SS_Limit(value);
+
+        let value = mem.read_physical_address_ram_8B(save_addr + 8);
+        reg.set_SS_Base(value);
+        let save_addr = save_addr + 16;
+
+        // LOAD DS
+        let value = mem.read_physical_address_ram_2B(save_addr);
+        reg.set_DS_Selector(value);
+
+        let value = mem.read_physical_address_ram_4B(save_addr + 4);
+        reg.set_DS_Limit(value);
+
+        let value = mem.read_physical_address_ram_8B(save_addr + 8);
+        reg.set_DS_Base(value);
+        let save_addr = save_addr + 16;
+
+        // LOAD FS
+        let value = mem.read_physical_address_ram_2B(save_addr);
+        reg.set_FS_Selector(value);
+
+        let value = mem.read_physical_address_ram_4B(save_addr + 4);
+        reg.set_FS_Limit(value);
+
+        let value = mem.read_physical_address_ram_8B(save_addr + 8);
+        reg.set_FS_Base(value);
+        let save_addr = save_addr + 16;
+
+        // LOAD GS
+        let value = mem.read_physical_address_ram_2B(save_addr);
+        reg.set_GS_Selector(value);
+
+        let value = mem.read_physical_address_ram_4B(save_addr + 4);
+        reg.set_GS_Limit(value);
+
+        let value = mem.read_physical_address_ram_8B(save_addr + 8);
+        reg.set_GS_Base(value);
+        let save_addr = save_addr + 16;
+
+        // LOAD GDTR
+        let value = mem.read_physical_address_ram_2B(save_addr + 4);
+        reg.set_GDTR_Limit(value);
+
+        let value = mem.read_physical_address_ram_8B(save_addr + 8);
+        reg.set_GDTR_Base(value);
+        let save_addr = save_addr + 16;
+
+        // LOAD LDTR
+        let value = mem.read_physical_address_ram_2B(save_addr);
+        reg.set_LDTR_Selector(value);
+
+        let value = mem.read_physical_address_ram_4B(save_addr + 4);
+        reg.set_LDTR_Limit(value);
+
+        let value = mem.read_physical_address_ram_8B(save_addr + 8);
+        reg.set_LDTR_Base(value);
+        let save_addr = save_addr + 16;
+
+        // LOAD IDTR
+        let value = mem.read_physical_address_ram_2B(save_addr + 4);
+        reg.set_IDTR_Limit(value);
+
+        let value = mem.read_physical_address_ram_8B(save_addr + 8);
+        reg.set_IDTR_Base(value);
+        let save_addr = save_addr + 16;
+
+         // LOAD TR
+        let value = mem.read_physical_address_ram_2B(save_addr);
+        reg.set_TR_Selector(value);
+
+        let value = mem.read_physical_address_ram_4B(save_addr + 4);
+        reg.set_TR_Limit(value);
+
+        let value = mem.read_physical_address_ram_8B(save_addr + 8);
+        reg.set_TR_Base(value);
+        let save_addr = save_addr + 16;
+
+        // LOAD EFER
+        let save_addr = 0_u20 ## (reg.get_SMBASE() + 0x0FED0_u32);
+        let value = mem.read_physical_address_ram_8B(save_addr);
+        reg.set_EFER(value);
+
+        // LOAD CR4
+        let save_addr = 0_u20 ## (reg.get_SMBASE() + 0x0FF48_u32);
+        let value = mem.read_physical_address_ram_8B(save_addr);
+        reg.set_CR4(value);
+        let save_addr = save_addr + 8;
+
+        // LOAD CR3
+        let value = mem.read_physical_address_ram_8B(save_addr);
+        reg.set_CR3(value);
+        let save_addr = save_addr + 8;
+
+        // LOAD CR0
+        let value = mem.read_physical_address_ram_8B(save_addr);
+        reg.set_CR0(value);
+        let save_addr = save_addr + 8;
+
+        // LOAD DR7
+        let value = mem.read_physical_address_ram_8B(save_addr);
+        reg.set_DR7(value);
+        let save_addr = save_addr + 8;
+
+        // LOAD DR6
+        let value = mem.read_physical_address_ram_8B(save_addr);
+        reg.set_DR6(value);
+        let save_addr = save_addr + 8;
+
+        // LOAD RFLAGS
+        let value = mem.read_physical_address_ram_8B(save_addr);
+        reg.set_RFLAGS(value);
+        let save_addr = save_addr + 8;
+
+        // LOAD RIP
+        let value = mem.read_physical_address_ram_8B(save_addr);
+        reg.set_RIP(value);
+        let save_addr = save_addr + 8;
+
+        // LOAD R15
+        let value = mem.read_physical_address_ram_8B(save_addr);
+        reg.set_R15(value);
+        let save_addr = save_addr + 8;
+
+        // LOAD R14
+        let value = mem.read_physical_address_ram_8B(save_addr);
+        reg.set_R14(value);
+        let save_addr = save_addr + 8;
+
+        // LOAD R13
+        let value = mem.read_physical_address_ram_8B(save_addr);
+        reg.set_R13(value);
+        let save_addr = save_addr + 8;
+
+        // LOAD R12
+        let value = mem.read_physical_address_ram_8B(save_addr);
+        reg.set_R12(value);
+        let save_addr = save_addr + 8;
+
+        // LOAD R11
+        let value = mem.read_physical_address_ram_8B(save_addr);
+        reg.set_R11(value);
+        let save_addr = save_addr + 8;
+
+        // LOAD R10
+        let value = mem.read_physical_address_ram_8B(save_addr);
+        reg.set_R10(value);
+        let save_addr = save_addr + 8;
+
+        // LOAD R9
+        let value = mem.read_physical_address_ram_8B(save_addr);
+        reg.set_R9(value);
+        let save_addr = save_addr + 8;
+
+        // LOAD R8
+        let value = mem.read_physical_address_ram_8B(save_addr);
+        reg.set_R8(value);
+        let save_addr = save_addr + 8;
+
+        // LOAD RDI
+        let value = mem.read_physical_address_ram_8B(save_addr);
+        reg.set_RDI(value);
+        let save_addr = save_addr + 8;
+
+        // LOAD RSI
+        let value = mem.read_physical_address_ram_8B(save_addr);
+        reg.set_RSI(value);
+        let save_addr = save_addr + 8;
+
+        // LOAD RBP
+        let value = mem.read_physical_address_ram_8B(save_addr);
+        reg.set_RBP(value);
+        let save_addr = save_addr + 8;
+
+        // LOAD RSP
+        let value = mem.read_physical_address_ram_8B(save_addr);
+        reg.set_RSP(value);
+        let save_addr = save_addr + 8;
+
+        // LOAD RBX
+        let value = mem.read_physical_address_ram_8B(save_addr);
+        reg.set_RBX(value);
+        let save_addr = save_addr + 8;
+
+        // LOAD RDX
+        let value = mem.read_physical_address_ram_8B(save_addr);
+        reg.set_RDX(value);
+        let save_addr = save_addr + 8;
+
+        // LOAD RCX
+        let value = mem.read_physical_address_ram_8B(save_addr);
+        reg.set_RCX(value);
+        let save_addr = save_addr + 8;
+
+        // LOAD RAX
+        let value = mem.read_physical_address_ram_8B(save_addr);
+        reg.set_RAX(value);
+    }
+
+    mut fn init_smm(){
+        let address_gdtr: BitInt(52) = 0_u20 ## (reg.get_SMBASE() + 0x804d_u32);
+        let address_gdt: BitInt(52) = 0_u20 ## (any<BitInt(32)>);
+
+        // place the GDT anywhere in the SMRAM except in the Save state and GDTR structure
+        assume((address_gdt[51 downto 17] & reg.get_SMM_MASK()[51 downto 17] == reg.get_SMM_ADDR()[51 downto 17] & reg.get_SMM_MASK()[51 downto 17]) &&
+                address_gdt > address_gdtr + 6 && 
+                ((address_gdt + 24)[51 downto 17] & reg.get_SMM_MASK()[51 downto 17] == reg.get_SMM_ADDR()[51 downto 17] & reg.get_SMM_MASK()[51 downto 17]) &&
+                (address_gdt > (0_u20 ## (reg.get_SMBASE() + 0xFFFF_u32)) || (address_gdt + 23) < (0_u20 ## (reg.get_SMBASE() + 0xFE00_u32)))); 
+
+        // GDTR values
+        mem.write_physical_address_ram_2B(address_gdtr, 0x17_u16);
+        mem.write_physical_address_ram_4B((address_gdtr+2), address_gdt[31 downto 0]);
+
+        // Global descriptor for jumping and such
+        // Null Descriptor
+        mem.write_physical_address_ram_8B(address_gdt, 0x00_u64);
+        // Code Descriptor
+        mem.write_physical_address_ram_8B((address_gdt+8), 0x008F_9900_0000_FFFF);
+        // Byte meaning form right to left
+        // Limit
+        // Limit
+        // Base 0:7
+        // Base 8:15
+        // Base 16:23
+        // Flags ~0b1001_1001
+        // Flags ~0b1000_1111
+        // Base 24:31
+        // Data Descriptor
+        mem.write_physical_address_ram_8B((address_gdt+8), 0x008F_9300_0000_FFFF);
+        // Byte meaning form right to left
+        // Limit
+        // Limit
+        // Base 0:7
+        // Base 8:15
+        // Base 16:23
+        // Flags ~0b1001_0011
+        // Flags ~0b1000_1111
+        // Base 24:31
+        
+        LastRIP.set(0_u32 ## (reg.get_SMBASE() + 0x8000_u32)); // defined entry point of SMM
+       
+    }
+
+    mut fn SMI(){ // interrupt call to SMM
+        reg.set_smm_active(true); // Set to SMM mode
+        smm_save_state(); // Save all registers to SMRAM
+        smm_init_state(); // Initialize register for SMM
+
+        // Load the GDTR 
+        let gdtr_address = 0_u32 ## (reg.get_SMBASE() + 0x804d_u32);
+        reg.load_gdtr(gdtr_address);
+
+        // Take the jump address
+        let jmpStmt: BitInt(64) = any; // take any jump address to be non fix
+        assume(jmpStmt[51 downto 17] & reg.get_SMM_MASK()[51 downto 17] == reg.get_SMM_ADDR()[51 downto 17] & reg.get_SMM_MASK()[51 downto 17]);
+
+        // Make the address calculation for the jump
+        let selector: BitInt(16) = 0x8_u16;
+        let b = mem.exec_farjmp_32_va(jmpStmt, selector); // jmp selector:jmpstmt, => new address: jmpstmt + Descriptor_address => at selector 8
+
+        let jump_addr = reg.get_RIP();
+
+        LastRIP.set(jump_addr); // Save the last known RIP state
+        smm_restore_state(); // Restore to return
+        reg.set_smm_active(false);
+       
+    }
+
+}

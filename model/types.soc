@@ -1,0 +1,66 @@
+/*
+    General types
+*/
+type Byte = BitInt(8);
+type Word = BitInt(16);
+type DoubleWord = BitInt(32);
+type QuadWord = BitInt(64);
+/*
+    Registers types
+*/
+type Register16 = BitInt(16); // Registers with 16 Bit size
+type Register32 = BitInt(32); // Registers with 32 Bit size
+type Register64 = BitInt(64); // Registers with 64 Bit size
+/*
+    Address types
+*/
+type VrAddr = BitInt(64); // Virtual address 
+type PhyAddr = BitInt(52); // Physical address
+
+type Segment_Selector = E_CS | E_DS | E_SS | E_ES | E_FS | E_GS | E_CODE;
+
+/*
+    Interfaces
+*/
+interface Memory_Module_Interface {
+    mut fn init_ram();
+    mut fn init_mmio();
+
+    mut fn read_physical_address_ram(address: PhyAddr) -> Byte;
+    mut fn read_physical_address_ram_2B(address: PhyAddr) -> Word;
+    mut fn read_physical_address_ram_4B(address: PhyAddr) -> DoubleWord;
+    mut fn read_physical_address_ram_8B(address: PhyAddr) -> QuadWord;
+    mut fn read_physical_address_mmio(address: PhyAddr) -> Byte;
+    mut fn read_physical_address_mmio_8B(address: PhyAddr) -> QuadWord;
+
+    mut fn write_physical_address_ram(address: PhyAddr, value: Byte);
+    mut fn write_physical_address_ram_2B(address: PhyAddr, value: Word);
+    mut fn write_physical_address_ram_4B(address: PhyAddr, value: DoubleWord);
+    mut fn write_physical_address_ram_8B(address: PhyAddr, value: QuadWord);
+    mut fn write_physical_address_mmio(address: PhyAddr, value: Byte);
+    mut fn write_physical_address_mmio_8B(address: PhyAddr, value: QuadWord);
+
+    mut fn get_error_code() -> QuadWord;
+
+    mut fn read_phy(address: PhyAddr) -> Byte;
+    mut fn read_phy_8B(address: PhyAddr) -> QuadWord;
+
+    mut fn write_phy(address: PhyAddr, value: Byte);
+    mut fn write_phy_8B(address: PhyAddr, value: QuadWord);
+
+    mut fn read_instruction_32(address: PhyAddr) -> DoubleWord;
+    mut fn read_instruction_64(address: PhyAddr) -> QuadWord;
+
+    mut fn page_walk(VR_address: VrAddr, segment_reg: Segment_Selector) -> PhyAddr;
+    mut fn legacy_page_walk(VR_address: VrAddr) -> PhyAddr;
+
+    mut fn segment_address_translation(address: VrAddr, segment_reg:Segment_Selector) -> PhyAddr;
+
+    mut fn read_va(address: QuadWord, segment_reg: Segment_Selector) -> Byte;
+    mut fn write_va(address: QuadWord, segment_reg: Segment_Selector, value: Byte) -> Bool;
+
+    mut fn execute_va() -> Byte;
+
+    mut fn exec_farjmp_32_va(address: QuadWord, selector: Word) -> Bool;
+    mut fn exec_farjmp_64_va(address: QuadWord, selector: Word) -> Bool;
+}
